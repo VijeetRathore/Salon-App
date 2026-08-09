@@ -14,23 +14,14 @@
     <div class="top-nav-bar" id="topNavBar"></div>
     <main class="main">
 
+      <!-- Tabs: Purchase Entry | Services (Products tab removed) -->
       <div class="flex gap-8 mb-16">
-        <button class="btn btn-secondary" data-tab="products" onclick="switchTab('products')" id="tabBtn-products">Products & Stock</button>
-        <button class="btn btn-ghost" data-tab="purchase" onclick="switchTab('purchase')" id="tabBtn-purchase">Purchase Entry</button>
-        <button class="btn btn-ghost" data-tab="services" onclick="switchTab('services')" id="tabBtn-services">Services</button>
-      </div>
-
-      <!-- Products & Stock -->
-      <div id="tab-products">
-        <div class="flex mb-16" style="justify-content: space-between;">
-          <h3>Products</h3>
-          <button class="btn btn-primary" onclick="openProductModal()">+ New Product</button>
-        </div>
-        <div class="card" style="padding:0;"><div id="productList"></div></div>
+        <button class="btn btn-secondary" data-tab="purchase" onclick="switchTab('purchase')" id="tabBtn-purchase">Purchase Entry</button>
+        <button class="btn btn-ghost"     data-tab="services" onclick="switchTab('services')" id="tabBtn-services">Services</button>
       </div>
 
       <!-- Purchase Entry -->
-      <div id="tab-purchase" style="display:none;">
+      <div id="tab-purchase">
         <div class="card" style="max-width: 640px;">
           <h3 class="mb-16">Record a Purchase</h3>
           <div class="grid grid-2">
@@ -42,8 +33,34 @@
           <div id="purchaseRows"></div>
           <button type="button" class="btn btn-secondary mb-16" onclick="addPurchaseRow()">+ Add Product</button>
 
-          <button class="btn btn-primary" style="width:100%;" onclick="recordPurchase()">Save Purchase & Update Stock</button>
+          <!-- Bill Upload — mandatory -->
+          <div class="field">
+            <label>
+              Bill Photo <span style="color:var(--warn); font-size:0.8rem; font-weight:600;">* Required</span>
+            </label>
+            <div id="billUploadArea" style="
+              border: 2px dashed var(--line); border-radius: 12px;
+              padding: 20px; text-align: center; cursor: pointer;
+              transition: border-color 0.2s;
+            " onclick="document.getElementById('purBillInput').click()">
+              <div id="billPreviewThumb" style="display:none; margin-bottom:10px;">
+                <img id="billThumbImg" style="max-height:120px; border-radius:8px; max-width:100%;" src="" alt="Bill preview">
+              </div>
+              <div id="billUploadPrompt">
+                <div style="font-size:1.6rem; margin-bottom:4px;">📷</div>
+                <div style="font-size:0.9rem; color:var(--ink-soft);">Tap to take photo or upload bill</div>
+              </div>
+            </div>
+            <input id="purBillInput" type="file" accept="image/*" capture="environment"
+                   style="display:none;" onchange="handleBillUpload(this)">
+            <div id="billStatusText" style="font-size:0.8rem; margin-top:6px; color:var(--ink-soft);"></div>
+          </div>
+
+          <button class="btn btn-primary" style="width:100%; margin-top:8px;" onclick="recordPurchase()">
+            Save Purchase &amp; Update Stock
+          </button>
         </div>
+
         <h3 class="mt-16 mb-16">Recent Purchases</h3>
         <div class="card" style="padding:0;"><div id="purchaseList"></div></div>
       </div>
@@ -59,40 +76,22 @@
     </main>
   </div>
 
-  <!-- Product Modal -->
-  <dialog id="productModal" style="border:none; border-radius: 20px; padding: 0; width: min(480px, 92vw);">
-    <form method="dialog" id="productForm" class="card" style="border:none; box-shadow:none;">
-      <h2 class="mb-16">New Product</h2>
-      <input type="hidden" id="prodId">
-      <div class="field"><label>Product Name *</label><input id="prodName" required></div>
-      <div class="grid grid-2">
-        <div class="field"><label>Brand</label><input id="prodBrand"></div>
-        <div class="field"><label>Category</label><input id="prodCategory"></div>
+  <!-- Bill Not Available dialog -->
+  <dialog id="billMissingDialog" style="border:none; border-radius:20px; padding:0; width:min(360px,92vw);">
+    <div class="card" style="border:none; box-shadow:none;">
+      <h3 class="mb-16">Bill Photo Required</h3>
+      <p style="color:var(--ink-soft); font-size:0.9rem; margin-bottom:20px;">
+        Please upload a photo of the purchase bill. If you don't have it right now, you can proceed without it.
+      </p>
+      <div class="flex gap-12" style="flex-direction:column;">
+        <button class="btn btn-primary" onclick="document.getElementById('billMissingDialog').close(); document.getElementById('purBillInput').click();">
+          📷 Click Photo of Bill
+        </button>
+        <button class="btn btn-ghost" onclick="proceedWithoutBill()" style="color:var(--warn);">
+          Bill Not Available — Continue Anyway
+        </button>
       </div>
-      <div class="grid grid-2">
-        <div class="field"><label>Size</label><input id="prodSize" placeholder="e.g. 500"></div>
-        <div class="field"><label>Unit</label>
-          <input id="prodUnit" list="unitSuggestions" placeholder="e.g. ml, g, pc, strip">
-          <datalist id="unitSuggestions">
-            <option value="ml"><option value="l"><option value="g"><option value="kg">
-            <option value="pc"><option value="pair"><option value="strip"><option value="sachet">
-            <option value="tube"><option value="bottle"><option value="set">
-          </datalist>
-        </div>
-      </div>
-      <div class="grid grid-2">
-        <div class="field"><label>Purchase Cost (₹)</label><input id="prodPurchaseCost" type="number" min="0"></div>
-        <div class="field"><label>Selling Cost (₹)</label><input id="prodSellingCost" type="number" min="0"></div>
-      </div>
-      <div class="grid grid-2">
-        <div class="field"><label>Opening Stock</label><input id="prodStock" type="number" min="0" step="any"></div>
-        <div class="field"><label>Low Stock Alert Below</label><input id="prodLowStock" type="number" min="0" value="5"></div>
-      </div>
-      <div class="flex gap-12" style="justify-content: flex-end;">
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('productModal').close()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Save Product</button>
-      </div>
-    </form>
+    </div>
   </dialog>
 
   <!-- Service Modal -->

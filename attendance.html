@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Attendance — Get Gorgeous</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/attendance.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="top-nav-bar" id="topNavBar"></div>
+    <main class="main">
+
+      <!-- Today's status card -->
+      <div class="card mb-16" id="todayCard" style="text-align:center; padding: 28px 20px;">
+        <div style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:6px;" id="todayDateLabel"></div>
+        <div style="font-size:1.1rem; font-weight:600; margin-bottom:16px;" id="todayStatus">Checking…</div>
+        <button class="btn btn-primary" id="markBtn" onclick="openMarkPopup()" style="display:none;">
+          Mark My Attendance
+        </button>
+      </div>
+
+      <!-- Filter: date picker -->
+      <div class="flex gap-8 mb-16" style="align-items:center;">
+        <label style="font-size:0.85rem; color:var(--ink-soft); white-space:nowrap;">Show date:</label>
+        <input type="date" id="attDateFilter" class="field" style="flex:1; margin:0; padding:8px 12px;"
+               onchange="renderAttendancePage()">
+      </div>
+
+      <!-- Staff attendance list for selected date -->
+      <div class="card" style="padding:0;" id="attList">
+        <div class="empty-state"><div class="icon">📋</div>Loading…</div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="assets/js/db.js"></script>
+  <script src="assets/js/device-id.js"></script>
+  <script src="assets/js/device-guard.js"></script>
+  <script src="assets/js/shell.js"></script>
+  <script src="assets/js/app-config.js"></script>
+  <script src="assets/js/sync.js"></script>
+  <script src="assets/js/reminders.js"></script>
+  <script src="assets/js/attendance.js"></script>
+
+  <script>
+    renderShell('attendance.html', 'Attendance');
+
+    // Set default date to today
+    const filterEl = document.getElementById('attDateFilter');
+    filterEl.value = AttendanceModule.todayStr();
+
+    // Setup today card
+    async function setupTodayCard() {
+      const existing = await AttendanceModule.getTodayRecord();
+      const label = document.getElementById('todayDateLabel');
+      const statusEl = document.getElementById('todayStatus');
+      const markBtn = document.getElementById('markBtn');
+
+      label.textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+
+      if (existing) {
+        if (existing.status === 'present') {
+          statusEl.innerHTML = `<span class="att-badge-present">✅ Present</span>`;
+        } else {
+          statusEl.innerHTML = `<span class="att-badge-leave">🏖️ On Leave</span>`;
+        }
+        const markedTime = new Date(existing.markedAt).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+        statusEl.innerHTML += `<div style="font-size:0.8rem; color:var(--ink-soft); margin-top:6px;">Marked at ${markedTime}</div>`;
+        markBtn.style.display = 'none';
+      } else {
+        statusEl.textContent = 'Not marked yet';
+        markBtn.style.display = 'inline-flex';
+      }
+    }
+
+    function openMarkPopup() {
+      AttendanceModule.showAttendancePopup({ forceShow: true });
+    }
+
+    // Renders the attendance list for selected date
+    window.renderAttendancePage = async function() {
+      const selectedDate = filterEl.value || AttendanceModule.todayStr();
+      const allStaff = await DB.getAll('staff');
+      const attRecords = await DB.getByIndex('attendance', 'date', selectedDate);
+
+      const el = document.getElementById('attList');
+
+      if (!allStaff.length) {
+        el.innerHTML = `<div class="empty-state"><div class="icon">⚇</div>No staff added yet. Add staff first.</div>`;
+        return;
+      }
+
+      // Map: deviceId → record, and staffId → record
+      const byDeviceId = {};
+      const byStaffId = {};
+      attRecords.forEach(r => {
+        if (r.deviceId) byDeviceId[r.deviceId] = r;
+        if (r.staffId)  byStaffId[r.staffId] = r;
+      });
+
+      const rows = allStaff.map(s => {
+        const rec = byStaffId[s.id] || null;
+        let badgeHtml, locationHtml = '';
+
+        if (rec) {
+          if (rec.status === 'present') {
+            badgeHtml = `<span class="att-badge-present">✅ Present</span>`;
+          } else {
+            badgeHtml = `<span class="att-badge-leave">🏖️ Leave</span>`;
+          }
+          const t = new Date(rec.markedAt).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+          locationHtml = `<span class="text-soft" style="font-size:0.78rem;">
+            ${t}${rec.lat ? ` · 📍${rec.lat.toFixed(4)},${rec.lng.toFixed(4)}` : ''}
+          </span>`;
+        } else {
+          badgeHtml = `<span class="att-badge-absent">— Absent</span>`;
+        }
+
+        return `
+          <div class="list-row" style="padding:14px 18px; align-items:flex-start;">
+            <div>
+              <div style="font-weight:600;">${s.name}</div>
+              <div>${locationHtml}</div>
+            </div>
+            ${badgeHtml}
+          </div>`;
+      });
+
+      // Also show device-only records (staff not in staff list yet)
+      const deviceOnlyRecs = attRecords.filter(r => !r.staffId && r.deviceId);
+      const deviceRows = deviceOnlyRecs.map(r => {
+        const badge = r.status === 'present'
+          ? `<span class="att-badge-present">✅ Present</span>`
+          : `<span class="att-badge-leave">🏖️ Leave</span>`;
+        const t = new Date(r.markedAt).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+        return `
+          <div class="list-row" style="padding:14px 18px; align-items:flex-start;">
+            <div>
+              <div style="font-weight:600;">${r.staffName || 'Unknown Device'}</div>
+              <div><span class="text-soft" style="font-size:0.78rem;">${t}${r.lat ? ` · 📍${r.lat.toFixed(4)},${r.lng.toFixed(4)}` : ''}</span></div>
+            </div>
+            ${badge}
+          </div>`;
+      });
+
+      el.innerHTML = [...rows, ...deviceRows].join('') ||
+        `<div class="empty-state"><div class="icon">📋</div>No records for this date.</div>`;
+
+      // Refresh today card if viewing today
+      if (selectedDate === AttendanceModule.todayStr()) setupTodayCard();
+    };
+
+    setupTodayCard();
+    renderAttendancePage();
+  </script>
+</body>
+</html>

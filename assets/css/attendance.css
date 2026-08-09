@@ -1,0 +1,65 @@
+/* ============================================
+   attendance.css — Attendance page styles
+   ============================================ */
+
+/* Attendance tile on home — green tint */
+.launcher-tile.attendance-tile {
+  background: var(--success-soft);
+  border: 1.5px solid var(--success);
+}
+.launcher-tile.attendance-tile .icon { color: var(--success); }
+.launcher-tile.attendance-tile .label { color: var(--success); }
+
+/* Status badges */
+.att-badge-present {
+  background: var(--success-soft); color: var(--success);
+  font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.att-badge-leave {
+  background: var(--warn-soft); color: var(--warn);
+  font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.att-badge-absent {
+  background: var(--surface-sunken); color: var(--ink-soft);
+  font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+/* Attendance popup overlay */
+.att-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+.att-popup {
+  background: var(--surface);
+  border-radius: 24px 24px 0 0;
+  padding: 28px 24px 40px;
+  width: 100%; max-width: 480px;
+  animation: slideUp 0.3s ease;
+}
+.att-popup h2 { margin-bottom: 6px; font-size: 1.25rem; }
+.att-popup .att-sub { color: var(--ink-soft); font-size: 0.88rem; margin-bottom: 24px; }
+.att-options { display: flex; gap: 14px; }
+.att-btn {
+  flex: 1; padding: 18px 10px;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: 1rem; font-weight: 600;
+  cursor: pointer; text-align: center;
+  transition: all 0.15s ease;
+}
+.att-btn:active { transform: scale(0.97); }
+.att-btn.present { border-color: var(--success); background: var(--success-soft); color: var(--success); }
+.att-btn.leave   { border-color: var(--warn);    background: var(--warn-soft);    color: var(--warn); }
+.att-btn .att-btn-icon { font-size: 2rem; display: block; margin-bottom: 6px; }
+
+.att-location { font-size: 0.78rem; color: var(--ink-soft); margin-top: 16px; text-align: center; min-height: 18px; }
+
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

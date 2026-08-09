@@ -28,6 +28,7 @@
         <a class="launcher-tile" href="appointments.html"><span class="icon">◷</span><span class="label">Bookings</span></a>
         <a class="launcher-tile" href="expenses.html"><span class="icon">⛁</span><span class="label">Expenses</span></a>
         <a class="launcher-tile" href="staff.html"><span class="icon">⚇</span><span class="label">Staff</span></a>
+        <a class="launcher-tile attendance-tile" href="attendance.html"><span class="icon">✓</span><span class="label">Attendance</span></a>
         <a class="launcher-tile" href="marketing.html"><span class="icon">✉</span><span class="label">Marketing</span></a>
         <a class="launcher-tile" href="whatsapp-queue.html"><span class="icon">📨</span><span class="label">WhatsApp Queue</span></a>
         <a class="launcher-tile" href="reports.html"><span class="icon">◫</span><span class="label">Reports</span></a>
@@ -42,6 +43,15 @@
   <script src="assets/js/app-config.js"></script>
   <script src="assets/js/sync.js"></script>
   <script src="assets/js/reminders.js"></script>
-  <script>updateSyncPill();</script>
+  <script src="assets/js/attendance.js"></script>
+  <script>
+    updateSyncPill();
+    // Show SW update banner on home page too
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'SW_UPDATED') showUpdateBanner();
+      });
+    }
+  </script>
 </body>
 </html>

@@ -2,6 +2,9 @@
    shell.js — renders the top nav bar (Back/Home)
    on every inner page. home.html (the launcher
    grid) does NOT call this — it has its own markup.
+
+   Also handles:
+   - SW update detection → "Update available" banner
    ============================================ */
 
 function renderShell(activeHref, pageTitle) {
@@ -61,18 +64,67 @@ function fmtDateTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-/** Builds a working wa.me link. WhatsApp requires the full country code with no
- *  leading + or 0 — a bare 10-digit Indian number will silently fail to open a chat.
- *  Assumes India (91) when the cleaned number is exactly 10 digits; leaves longer
- *  numbers (already has a country code) untouched. */
 function buildWhatsAppLink(mobile, text) {
   let clean = String(mobile || '').replace(/\D/g, '');
   if (clean.length === 10) clean = '91' + clean;
   return `https://wa.me/${clean}?text=${encodeURIComponent(text)}`;
 }
 
+/* ---- PWA Update Banner ---- */
+function showUpdateBanner() {
+  if (document.getElementById('swUpdateBanner')) return; // already shown
+  const banner = document.createElement('div');
+  banner.id = 'swUpdateBanner';
+  banner.style.cssText = `
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+    background: #A3173A; color: #fff;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; font-family: var(--font-body, sans-serif);
+    font-size: 0.9rem; font-weight: 500;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.2);
+    animation: slideUp 0.3s ease;
+  `;
+  banner.innerHTML = `
+    <span>🔄 New update available!</span>
+    <button onclick="window.location.reload()" style="
+      background:#fff; color:#A3173A; border:none; border-radius:8px;
+      padding:8px 18px; font-weight:700; font-size:0.85rem; cursor:pointer;
+    ">Refresh Now</button>
+  `;
+  // Add slide-up animation
+  if (!document.getElementById('swBannerStyle')) {
+    const style = document.createElement('style');
+    style.id = 'swBannerStyle';
+    style.textContent = `@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`;
+    document.head.appendChild(style);
+  }
+  document.body.appendChild(banner);
+}
+
+/* ---- Register SW + listen for update messages ---- */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js')
+      .then((reg) => {
+        // If a new SW is waiting (user had old tab open, came back), show banner
+        if (reg.waiting) showUpdateBanner();
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateBanner();
+            }
+          });
+        });
+      })
+      .catch(() => {});
+
+    // Listen for postMessage from SW after activate
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'SW_UPDATED') {
+        showUpdateBanner();
+      }
+    });
   });
 }

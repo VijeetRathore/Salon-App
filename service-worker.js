@@ -1,11 +1,14 @@
 /* ============================================
    service-worker.js — offline app shell caching
    + Firebase Cloud Messaging background handler
-   (kept in this SAME file, not a separate
-   firebase-messaging-sw.js, so there's only one
-   service worker controlling this site's scope).
-   Bump CACHE_NAME whenever files change to force
-   devices to pick up the new version.
+   + Auto-update detection (postMessage to clients)
+
+   HOW UPDATE WORKS:
+   1. You push new code → CACHE_NAME version bumps
+   2. Browser detects new SW on next app open
+   3. SW installs + calls skipWaiting() immediately
+   4. On activate, posts "SW_UPDATED" to all clients
+   5. shell.js receives it → shows "Update available" banner
    ============================================ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
@@ -20,12 +23,14 @@ try {
     const options = {
       body: (payload.notification && payload.notification.body) || '',
       icon: './assets/icons/icon-192.png',
+      data: payload.data || {},
     };
     self.registration.showNotification(title, options);
   });
-} catch (e) { /* Firebase not configured yet — push just won't work until it is */ }
+} catch (e) { /* Firebase not configured yet */ }
 
-const CACHE_NAME = 'get-gorgeous-v16';
+/* ---- BUMP THIS every time you push new code ---- */
+const CACHE_NAME = 'get-gorgeous-v17';
 
 const APP_SHELL = [
   './index.html',
@@ -39,6 +44,7 @@ const APP_SHELL = [
   './appointments.html',
   './expenses.html',
   './staff.html',
+  './attendance.html',
   './marketing.html',
   './whatsapp-queue.html',
   './reports.html',
@@ -54,6 +60,7 @@ const APP_SHELL = [
   './assets/css/appointments.css',
   './assets/css/expenses.css',
   './assets/css/staff.css',
+  './assets/css/attendance.css',
   './assets/css/marketing.css',
   './assets/css/whatsapp-queue.css',
   './assets/css/reports.css',
@@ -76,6 +83,7 @@ const APP_SHELL = [
   './assets/js/appointments.js',
   './assets/js/expenses.js',
   './assets/js/staff.js',
+  './assets/js/attendance.js',
   './assets/js/marketing.js',
   './assets/js/queue.js',
   './assets/js/reports.js',
@@ -88,19 +96,28 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
-  self.skipWaiting();
+  self.skipWaiting(); // activate immediately, don't wait for old tabs to close
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
-    )
+    Promise.all([
+      // Delete old caches
+      caches.keys().then((names) =>
+        Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+      ),
+      // Claim all open clients
+      self.clients.claim(),
+    ]).then(() => {
+      // Tell every open tab: "new version is live, please refresh"
+      self.clients.matchAll({ type: 'window' }).then((clients) => {
+        clients.forEach((client) => client.postMessage({ type: 'SW_UPDATED' }));
+      });
+    })
   );
-  self.clients.claim();
 });
 
-// Cache-first for app shell files; network-first fallback for everything else (e.g. Google Fonts, future API calls)
+// Cache-first for app shell; network-first fallback for everything else
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -117,6 +134,19 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => caches.match('./home.html'));
+    })
+  );
+});
+
+// Handle notification click → open app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || './attendance.html';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((c) => c.url.includes(self.location.origin));
+      if (existing) { existing.focus(); existing.navigate(url); }
+      else self.clients.openWindow(url);
     })
   );
 });

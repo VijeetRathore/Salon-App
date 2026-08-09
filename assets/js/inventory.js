@@ -1,6 +1,11 @@
 /* ============================================
-   inventory.js — Products, Purchases, Services
-   (Phase 1)
+   inventory.js — Purchases & Services
+   (Products & Stock tab removed — managed separately)
+
+   Changes:
+   - Tab: only Purchase Entry + Services
+   - Purchase rows: Qty is now UOM dropdown
+   - Bill upload: mandatory with "Bill Not Available" escape
    ============================================ */
 
 renderShell('inventory.html', 'Inventory');
@@ -9,110 +14,89 @@ let allProducts = [];
 let allServices = [];
 let allPurchases = [];
 
+const UOM_LIST = ['ml', 'l', 'g', 'kg', 'pc', 'box', 'set', 'sachet', 'strip', 'packet'];
+
+/* ---- Tab switching (only purchase + services) ---- */
+
 function switchTab(tab) {
-  ['products', 'purchase', 'services'].forEach((t) => {
+  ['purchase', 'services'].forEach((t) => {
     document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
     const btn = document.getElementById(`tabBtn-${t}`);
     btn.className = t === tab ? 'btn btn-secondary' : 'btn btn-ghost';
   });
-  if (tab === 'purchase') {
-    document.querySelectorAll('#purchaseRows .purRowProduct').forEach(sel => {
-      const prev = sel.value;
-      sel.innerHTML = purchaseProductOptions();
-      if (prev) sel.value = prev;
-    });
-    populatePurchaseProductSelect();
-  }
+  if (tab === 'purchase') populatePurchaseProductSelect();
 }
 
-/* ---------- Products ---------- */
+/* ---- Bill Upload ---- */
 
-async function loadProducts() {
-  allProducts = await DB.getAll('products');
-  renderProductList();
-}
+let billImageBase64 = null;  // stored as base64 when user picks image
+let billSkipped = false;     // true when user clicks "Bill Not Available"
 
-function renderProductList() {
-  const el = document.getElementById('productList');
-  if (!allProducts.length) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">▤</div>No products yet. Add your first one.</div>`;
-    return;
-  }
-  el.innerHTML = allProducts
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(p => {
-      const low = (p.currentStock || 0) <= (p.lowStockThreshold || 5);
-      return `
-      <div class="list-row" style="padding: 14px 18px; cursor:pointer;" onclick="openProductModal('${p.id}')">
-        <div>
-          <div style="font-weight:600;">${p.name} <span class="text-soft" style="font-weight:400;">${p.brand || ''}</span></div>
-          <div class="text-soft" style="font-size:0.85rem;">${p.size || ''}${p.unit || ''} · ₹${p.sellingCost || 0}</div>
-        </div>
-        <span class="badge ${low ? 'warn' : 'success'}">${p.currentStock ?? 0} ${p.unit || ''}</span>
-      </div>`;
-    }).join('');
-}
+function handleBillUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
 
-function openProductModal(id) {
-  const form = document.getElementById('productForm');
-  form.reset();
-  document.getElementById('prodId').value = '';
-  document.querySelector('#productModal h2').textContent = 'New Product';
-  if (id) {
-    const p = allProducts.find(x => x.id === id);
-    if (p) {
-      document.getElementById('prodId').value = p.id;
-      document.getElementById('prodName').value = p.name || '';
-      document.getElementById('prodBrand').value = p.brand || '';
-      document.getElementById('prodCategory').value = p.category || '';
-      document.getElementById('prodSize').value = p.size || '';
-      document.getElementById('prodUnit').value = p.unit || '';
-      document.getElementById('prodPurchaseCost').value = p.purchaseCost || '';
-      document.getElementById('prodSellingCost').value = p.sellingCost || '';
-      document.getElementById('prodStock').value = p.currentStock || 0;
-      document.getElementById('prodLowStock').value = p.lowStockThreshold || 5;
-      document.querySelector('#productModal h2').textContent = 'Edit Product';
-    }
-  }
-  document.getElementById('productModal').showModal();
-}
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    billImageBase64 = e.target.result; // base64 data URL
+    billSkipped = false;
 
-document.getElementById('productForm').addEventListener('submit', async () => {
-  const id = document.getElementById('prodId').value;
-  const data = {
-    name: document.getElementById('prodName').value.trim(),
-    brand: document.getElementById('prodBrand').value.trim(),
-    category: document.getElementById('prodCategory').value.trim(),
-    size: document.getElementById('prodSize').value.trim(),
-    unit: document.getElementById('prodUnit').value.trim(),
-    purchaseCost: Number(document.getElementById('prodPurchaseCost').value) || 0,
-    sellingCost: Number(document.getElementById('prodSellingCost').value) || 0,
-    lowStockThreshold: Number(document.getElementById('prodLowStock').value) || 5,
+    // Show thumbnail preview
+    document.getElementById('billThumbImg').src = billImageBase64;
+    document.getElementById('billPreviewThumb').style.display = 'block';
+    document.getElementById('billUploadPrompt').style.display = 'none';
+    document.getElementById('billStatusText').textContent = '✅ Bill photo attached';
+    document.getElementById('billStatusText').style.color = 'var(--success)';
+    document.getElementById('billUploadArea').style.borderColor = 'var(--success)';
   };
-  if (id) {
-    await DB.update('products', id, data);
-  } else {
-    data.currentStock = Number(document.getElementById('prodStock').value) || 0;
-    await DB.add('products', data);
-  }
-  document.getElementById('productModal').close();
-  await loadProducts();
-  Sync.requestSync();
-});
+  reader.readAsDataURL(file);
+}
 
-/* ---------- Purchases (multiple products per invoice) ---------- */
+// Called when user clicks "Bill Not Available" in the dialog
+window.proceedWithoutBill = function() {
+  billSkipped = true;
+  billImageBase64 = null;
+  document.getElementById('billMissingDialog').close();
+  document.getElementById('billStatusText').textContent = '⚠️ Proceeding without bill';
+  document.getElementById('billStatusText').style.color = 'var(--warn)';
+  document.getElementById('billUploadArea').style.borderColor = 'var(--warn)';
+  // Actually save the purchase now
+  savePurchaseRecord();
+};
+
+function resetBillUpload() {
+  billImageBase64 = null;
+  billSkipped = false;
+  document.getElementById('purBillInput').value = '';
+  document.getElementById('billPreviewThumb').style.display = 'none';
+  document.getElementById('billUploadPrompt').style.display = 'block';
+  document.getElementById('billStatusText').textContent = '';
+  document.getElementById('billUploadArea').style.borderColor = 'var(--line)';
+}
+
+/* ---- Purchase Rows ---- */
+
+function uomSelect(selectedUom = '') {
+  return `<select class="purRowUom" style="max-width:90px;">
+    ${UOM_LIST.map(u => `<option value="${u}" ${u === selectedUom ? 'selected' : ''}>${u}</option>`).join('')}
+  </select>`;
+}
 
 function purchaseProductOptions() {
-  return allProducts.map(p => `<option value="${p.id}">${p.name} (${p.currentStock ?? 0} ${p.unit || ''} in stock)</option>`).join('');
+  return allProducts.map(p =>
+    `<option value="${p.id}">${p.name} (${p.currentStock ?? 0} ${p.unit || ''} in stock)</option>`
+  ).join('');
 }
 
 function addPurchaseRow() {
   const row = document.createElement('div');
   row.className = 'flex gap-8 mb-16 purchase-row';
+  row.style.flexWrap = 'wrap';
   row.innerHTML = `
-    <select class="purRowProduct" style="flex:1.4;">${purchaseProductOptions()}</select>
-    <input class="purRowQty" type="number" min="0" step="any" placeholder="Qty added" style="max-width:110px;">
-    <input class="purRowAmount" type="number" min="0" placeholder="Amount ₹" style="max-width:110px;">
+    <select class="purRowProduct" style="flex:1.4; min-width:140px;">${purchaseProductOptions()}</select>
+    <input  class="purRowQty" type="number" min="0" step="any" placeholder="Qty" style="max-width:80px;">
+    ${uomSelect()}
+    <input  class="purRowAmount" type="number" min="0" placeholder="₹ Amount" style="max-width:100px;">
     <button type="button" class="btn btn-ghost" onclick="this.parentElement.remove()">✕</button>
   `;
   document.getElementById('purchaseRows').appendChild(row);
@@ -120,23 +104,61 @@ function addPurchaseRow() {
 
 function populatePurchaseProductSelect() {
   if (!document.getElementById('purchaseRows').children.length) addPurchaseRow();
+  // Refresh existing selects with latest products
+  document.querySelectorAll('#purchaseRows .purRowProduct').forEach(sel => {
+    const prev = sel.value;
+    sel.innerHTML = purchaseProductOptions();
+    if (prev) sel.value = prev;
+  });
 }
+
+/* ---- Save Purchase ---- */
 
 async function recordPurchase() {
   const rows = Array.from(document.querySelectorAll('#purchaseRows .purchase-row'));
   const items = rows.map(row => ({
     productId: row.querySelector('.purRowProduct').value,
     qty: Number(row.querySelector('.purRowQty').value) || 0,
+    uom: row.querySelector('.purRowUom').value,
     amount: Number(row.querySelector('.purRowAmount').value) || 0,
   })).filter(i => i.productId && i.qty > 0);
 
-  if (!items.length) return alert('Add at least one product with a quantity.');
+  if (!items.length) {
+    alert('Add at least one product with a quantity.');
+    return;
+  }
 
+  // Bill check
+  if (!billImageBase64 && !billSkipped) {
+    document.getElementById('billMissingDialog').showModal();
+    return; // wait for user choice in dialog
+  }
+
+  savePurchaseRecord();
+}
+
+async function savePurchaseRecord() {
+  const rows = Array.from(document.querySelectorAll('#purchaseRows .purchase-row'));
+  const items = rows.map(row => ({
+    productId: row.querySelector('.purRowProduct').value,
+    qty: Number(row.querySelector('.purRowQty').value) || 0,
+    uom: row.querySelector('.purRowUom').value,
+    amount: Number(row.querySelector('.purRowAmount').value) || 0,
+  })).filter(i => i.productId && i.qty > 0);
+
+  // Update stock for each item
   for (const item of items) {
     const product = await DB.get('products', item.productId);
+    if (!product) continue;
     const newStock = (product.currentStock || 0) + item.qty;
     await DB.update('products', item.productId, { currentStock: newStock });
-    await DB.add('stockTransactions', { productId: item.productId, type: 'purchase', qty: item.qty, note: 'Purchase entry' });
+    await DB.add('stockTransactions', {
+      productId: item.productId,
+      type: 'purchase',
+      qty: item.qty,
+      uom: item.uom,
+      note: 'Purchase entry',
+    });
   }
 
   await DB.add('purchases', {
@@ -144,16 +166,40 @@ async function recordPurchase() {
     invoiceNo: document.getElementById('purInvoice').value.trim(),
     items,
     totalAmount: items.reduce((s, i) => s + i.amount, 0),
+    billImage: billImageBase64 || null,
+    billSkipped: billSkipped || false,
   });
 
+  // Reset form
   document.getElementById('purSupplier').value = '';
   document.getElementById('purInvoice').value = '';
   document.getElementById('purchaseRows').innerHTML = '';
   addPurchaseRow();
+  resetBillUpload();
 
   await loadProducts();
   await loadPurchases();
   Sync.requestSync();
+
+  showInvToast('✅ Purchase saved & stock updated');
+}
+
+function showInvToast(msg) {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    background:#222; color:#fff; padding:12px 22px; border-radius:12px;
+    font-size:0.9rem; font-weight:500; z-index:9999; white-space:nowrap;
+  `;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+/* ---- Purchases List ---- */
+
+async function loadProducts() {
+  allProducts = await DB.getAll('products');
 }
 
 async function loadPurchases() {
@@ -165,23 +211,29 @@ async function loadPurchases() {
   }
   el.innerHTML = allPurchases
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 15)
+    .slice(0, 20)
     .map(pu => {
       const itemsText = (pu.items || []).map(i => {
         const prod = allProducts.find(p => p.id === i.productId);
-        return `${prod ? prod.name : 'Unknown'} × ${i.qty}`;
+        return `${prod ? prod.name : 'Unknown'} × ${i.qty} ${i.uom || ''}`;
       }).join(', ');
-      return `<div class="list-row" style="align-items:flex-start;">
-        <div>
-          <div style="font-weight:600;">${pu.supplier || 'Purchase'} ${pu.invoiceNo ? '· ' + pu.invoiceNo : ''}</div>
-          <div class="text-soft" style="font-size:0.85rem;">${itemsText}</div>
-        </div>
-        <strong>${fmtCurrency(pu.totalAmount)}</strong>
-      </div>`;
+      const billBadge = pu.billImage
+        ? `<span class="badge success" style="margin-left:6px;">📷 Bill</span>`
+        : pu.billSkipped
+          ? `<span class="badge warn" style="margin-left:6px;">No Bill</span>`
+          : '';
+      return `
+        <div class="list-row" style="align-items:flex-start; padding:14px 18px;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600;">${pu.supplier || 'Purchase'} ${pu.invoiceNo ? '· ' + pu.invoiceNo : ''}${billBadge}</div>
+            <div class="text-soft" style="font-size:0.85rem;">${itemsText}</div>
+          </div>
+          <strong style="white-space:nowrap;">${fmtCurrency(pu.totalAmount)}</strong>
+        </div>`;
     }).join('');
 }
 
-/* ---------- Services ---------- */
+/* ---- Services ---- */
 
 async function loadServices() {
   allServices = await DB.getAll('services');
@@ -206,7 +258,9 @@ function addConsumptionRow(productId = '', qty = '') {
   const row = document.createElement('div');
   row.className = 'flex gap-8 mb-16';
   row.innerHTML = `
-    <select class="consProduct">${allProducts.map(p => `<option value="${p.id}" data-unit="${p.unit || ''}" ${p.id === productId ? 'selected' : ''}>${p.name}</option>`).join('')}</select>
+    <select class="consProduct">${allProducts.map(p =>
+      `<option value="${p.id}" data-unit="${p.unit || ''}" ${p.id === productId ? 'selected' : ''}>${p.name}</option>`
+    ).join('')}</select>
     <input class="consQty" type="number" min="0" step="any" placeholder="Qty used" value="${qty}" style="max-width:100px;">
     <span class="consUnit text-soft" style="min-width:36px; align-self:center; font-size:0.85rem;"></span>
     <button type="button" class="btn btn-ghost" onclick="this.parentElement.remove()">✕</button>
@@ -262,6 +316,7 @@ document.getElementById('serviceForm').addEventListener('submit', async () => {
   Sync.requestSync();
 });
 
+/* ---- Init ---- */
 (async function init() {
   await loadProducts();
   await loadServices();
