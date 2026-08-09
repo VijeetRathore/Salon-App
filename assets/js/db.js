@@ -218,6 +218,27 @@ const DB = {
       req.onerror = (e) => reject(e.target.error);
     });
   },
+
+  /** Update a record's fields WITHOUT touching synced flag.
+   *  Use ONLY for local-only metadata (heartbeats, UI state)
+   *  that should never trigger a push to Google Sheets. */
+  async _updateLocalOnly(storeName, id, patch) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        if (!existing) return resolve(null);
+        // Merge patch but preserve synced flag exactly as-is
+        store.put({ ...existing, ...patch });
+        resolve(true);
+      };
+      getReq.onerror = (e) => reject(e.target.error);
+    });
+  },
+
 };
 
 window.DB = DB;

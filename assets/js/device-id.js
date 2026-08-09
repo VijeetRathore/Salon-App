@@ -1,10 +1,9 @@
 /* ============================================
    device-id.js — persistent device identity
-   Loaded on every page (after db.js). Each phone
-   gets a permanent random ID (localStorage, survives
-   across sessions unlike sessionStorage) and registers
-   itself in the shared `deviceTokens` store so Settings
-   can designate which 1-2 devices are "master".
+
+   FIX: lastSeenAt heartbeat ab _updateLocalOnly se
+   hota hai — synced flag touch nahi hota →
+   "1 pending" bug khatam.
    ============================================ */
 
 function getDeviceId() {
@@ -21,7 +20,9 @@ window.DEVICE_ID = getDeviceId();
 async function registerDevice() {
   const existing = await DB.get('deviceTokens', window.DEVICE_ID);
   const now = new Date().toISOString();
+
   if (!existing) {
+    // First time — create record (synced:false so it gets pushed once)
     await DB.add('deviceTokens', {
       deviceId: window.DEVICE_ID,
       label: `Device ${window.DEVICE_ID.slice(-4)}`,
@@ -31,22 +32,16 @@ async function registerDevice() {
     });
     return;
   }
-  // Only touch (and re-push) the record if the heartbeat is meaningfully stale —
-  // avoids frequently re-pushing this device's own stale cached isMaster flag,
-  // which could otherwise race with a Settings-side master-designation change
-  // made on another device before this one has pulled the latest.
+
+  // Heartbeat — update lastSeenAt WITHOUT touching synced flag
+  // DB.update() sets synced:false which was causing spurious "1 pending" on every page load
   const staleMs = Date.now() - new Date(existing.lastSeenAt || 0).getTime();
   if (staleMs > 5 * 60 * 1000) {
-    await DB.update('deviceTokens', window.DEVICE_ID, { lastSeenAt: now });
+    await DB._updateLocalOnly('deviceTokens', window.DEVICE_ID, { lastSeenAt: now });
   }
 }
 registerDevice();
 
-/** True if THIS device is currently designated a master device.
- *  Bootstrap rule: if no device has been made master yet anywhere,
- *  every device is treated as allowed (so the very first person can
- *  reach Settings to designate the first master). Once at least one
- *  master exists, only master devices pass. */
 async function isMasterDevice() {
   const all = await DB.getAll('deviceTokens');
   const anyMaster = all.some((d) => d.isMaster);
