@@ -7,8 +7,22 @@
    (sessionStorage) — closing the tab/app re-locks it.
    ============================================ */
 
+/* PIN unlock persists 2 hours in localStorage (works across tabs + desktop) */
+const PIN_UNLOCK_KEY = 'gg_pinUnlockedUntil';
+const PIN_UNLOCK_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function isPinUnlocked() {
+  const until = localStorage.getItem(PIN_UNLOCK_KEY);
+  if (!until) return false;
+  return Date.now() < Number(until);
+}
+
+function setPinUnlocked() {
+  localStorage.setItem(PIN_UNLOCK_KEY, String(Date.now() + PIN_UNLOCK_DURATION_MS));
+}
+
 (async function pinGuard() {
-  if (sessionStorage.getItem('pinUnlocked') === 'true') return;
+  if (isPinUnlocked()) return;
 
   const existingPin = await DB.getSetting('pinHash', null);
 
@@ -42,12 +56,12 @@
 
     if (!existingPin) {
       await DB.setSetting('pinHash', hash);
-      sessionStorage.setItem('pinUnlocked', 'true');
+      setPinUnlocked();
       overlay.remove();
       return;
     }
     if (hash === existingPin) {
-      sessionStorage.setItem('pinUnlocked', 'true');
+      setPinUnlocked();
       overlay.remove();
     } else {
       document.getElementById('pinGuardError').style.display = 'block';

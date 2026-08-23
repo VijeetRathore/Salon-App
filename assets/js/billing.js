@@ -220,4 +220,27 @@ document.getElementById('quickProductForm').addEventListener('submit', async () 
   Sync.requestSync();
 });
 
+/* ---- Bill Done: notify master + redirect ---- */
+async function onBillDone() {
+  // Trigger push notification to master device (if FCM configured)
+  try {
+    const { gasUrl, gasToken, configured } = await Sync.getSyncConfig();
+    if (configured) {
+      // Fire-and-forget — notify via GAS backend
+      fetch(gasUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          token: gasToken,
+          action: 'notifyMaster',
+          title: 'New Bill Created',
+          body: `Bill for ${document.getElementById('confirmSummary').textContent.split('—')[0].trim()} saved`,
+        }),
+      }).catch(() => {}); // silent fail
+    }
+  } catch (_) {}
+
+  // Redirect to home — NOT dashboard (dashboard has pin-guard)
+  window.location.href = 'home.html';
+}
+
 init();

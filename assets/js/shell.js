@@ -7,6 +7,25 @@
    - SW update detection → "Update available" banner
    ============================================ */
 
+/* ---- Force app update: clears SW cache and reloads ---- */
+async function forceAppUpdate() {
+  const btn = document.getElementById('hardRefreshBtn');
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+
+  try {
+    // Unregister all service workers
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const reg of regs) await reg.unregister();
+
+    // Delete all caches
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  } catch (_) {}
+
+  // Hard reload — browser fetches everything fresh
+  window.location.reload(true);
+}
+
 function renderShell(activeHref, pageTitle) {
   const bar = document.getElementById('topNavBar');
   if (bar) {
@@ -16,15 +35,18 @@ function renderShell(activeHref, pageTitle) {
       <a class="top-nav-btn" href="home.html" aria-label="Home">⌂</a>
       <div class="top-nav-brand">GG</div>
       <strong style="font-size:0.95rem; flex:1;">${pageTitle}</strong>
+      <button id="hardRefreshBtn" onclick="forceAppUpdate()" title="Force update app" style="
+        background:none; border:1px solid var(--line,#EBE1DD); border-radius:8px;
+        padding:5px 9px; font-size:0.8rem; cursor:pointer; color:var(--ink-soft);
+        white-space:nowrap; flex-shrink:0;
+      ">🔄 Update</button>
       <span class="sync-pill" id="syncPill">
         <span class="dot"></span> <span id="syncText">…</span>
       </span>
     `;
   }
 
-  updateSyncPill();
-  window.addEventListener('online', updateSyncPill);
-  window.addEventListener('offline', updateSyncPill);
+  // Pill is managed by sync.js startBackgroundSync — no need to call here
 }
 
 function goBack() {
@@ -35,17 +57,10 @@ function goBack() {
   }
 }
 
+// updateSyncPill is now handled by sync.js → updateSyncPillFull()
+// Keeping a stub so home.html inline script doesn't break
 function updateSyncPill() {
-  const pill = document.getElementById('syncPill');
-  const text = document.getElementById('syncText');
-  if (!pill || !text) return;
-  if (navigator.onLine) {
-    pill.classList.remove('offline');
-    text.textContent = 'Online';
-  } else {
-    pill.classList.add('offline');
-    text.textContent = 'Offline — saving locally';
-  }
+  if (typeof updateSyncPillFull === 'function') updateSyncPillFull();
 }
 
 function fmtCurrency(n) {

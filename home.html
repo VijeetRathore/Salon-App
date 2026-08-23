@@ -17,7 +17,13 @@
           <div class="eyebrow">Get Gorgeous</div>
           <h1>Welcome</h1>
         </div>
-        <span class="sync-pill" id="syncPill"><span class="dot"></span> <span id="syncText">…</span></span>
+        <div class="flex gap-8" style="align-items:center;">
+          <button onclick="forceAppUpdate()" id="hardRefreshBtn" title="Force update app" style="
+            background:none; border:1px solid var(--line,#EBE1DD); border-radius:8px;
+            padding:5px 9px; font-size:0.8rem; cursor:pointer; color:var(--ink-soft);
+          ">🔄 Update</button>
+          <span class="sync-pill" id="syncPill"><span class="dot"></span> <span id="syncText">…</span></span>
+        </div>
       </div>
 
       <div class="launcher-grid">

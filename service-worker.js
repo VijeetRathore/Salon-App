@@ -30,7 +30,7 @@ try {
 } catch (e) { /* Firebase not configured yet */ }
 
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v17';
+const CACHE_NAME = 'get-gorgeous-v19';
 
 const APP_SHELL = [
   './index.html',

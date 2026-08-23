@@ -1,19 +1,23 @@
 /* ============================================
    sync.js — multi-device sync to Google Sheets/Drive
 
-   PUSH: fires ~1.5s after every save (debounced),
-         plus a 30s safety-net sweep.
-   PULL: every 45s fetches shared master data so all
-         phones stay in sync. Also handles remote deletes
-         for deviceTokens (Sheet se delete → local se bhi hata).
+   STARTUP SEQUENCE (app open pe):
+   1. Push: koi bhi local pending records Sheet mein bhejo
+   2. Pull: Sheet se sab latest data lo (ALL stores)
+   3. Pill: ab accurate pending count dikhao
 
-   BUG FIXES vs previous version:
-   1. deviceToken heartbeat now uses _updateLocalOnly →
-      never sets synced:false → no spurious "1 pending"
-   2. pullLatest uses overwriteFromRemote (synced:true) →
-      pulled records never become dirty
-   3. deviceTokens pull now deletes local IDs that are
-      gone from Sheet → Settings mein stale IDs nahi dikhti
+   BACKGROUND:
+   - Push: har 30s (+ har save ke 1.5s baad debounced)
+   - Pull: har 45s
+
+   PULL SCOPE: ab SABHI stores pull hote hain — sirf
+   6 nahi. Iska matlab jab bhi app open ho, har cheez
+   (stock, services, staff, attendance, bills sab)
+   latest ho jaati hai Sheet se.
+
+   SPURIOUS PENDING FIX:
+   Pill sirf push+pull ke BAAD update hoti hai —
+   isliye "2-3 pending" wala jhooth band.
    ============================================ */
 
 const SYNCABLE_STORES = [
@@ -22,12 +26,15 @@ const SYNCABLE_STORES = [
   'attendance', 'pendingMessages', 'deviceTokens',
 ];
 
-// Stores pulled from Sheet → local (shared master data)
-const PULL_STORES = ['customers', 'products', 'services', 'staff', 'pendingMessages', 'deviceTokens'];
+// Ab ALL stores pull hote hain — wahi jo backend bhi bhejta hai
+const PULL_STORES = [
+  'customers', 'appointments', 'services', 'bills', 'products',
+  'purchases', 'stockTransactions', 'expenses', 'staff',
+  'attendance', 'pendingMessages', 'deviceTokens',
+];
 
-// Stores where remote deletes should be mirrored locally
-// (only deviceTokens for now — others are append-only logs)
-const DELETE_SYNC_STORES = ['deviceTokens'];
+// In stores mein Sheet se delete hone pe local se bhi hatao
+const DELETE_SYNC_STORES = ['deviceTokens', 'staff'];
 
 const JSON_FIELDS = {
   services: ['consumption'],
@@ -147,8 +154,6 @@ async function pullLatest() {
       const remoteRecords = json.data[storeName] || [];
       const remoteIds = new Set(remoteRecords.map(r => r.id || r.deviceId).filter(Boolean));
 
-      // FIX 1: Upsert pulled records using overwriteFromRemote (synced:true always)
-      // This means pulled records are NEVER marked dirty → no spurious pending count
       for (const remote of remoteRecords) {
         const recordId = remote.id || remote.deviceId;
         if (!recordId) continue;
@@ -156,37 +161,53 @@ async function pullLatest() {
         const local = await DB.get(storeName, recordId);
 
         if (!local) {
-          // New record from another device — add it as synced
+          // Nayi record Sheet mein hai, local mein nahi — add karo
           await DB.overwriteFromRemote(storeName, recordId, clean);
         } else if (local.synced !== false) {
-          // Only overwrite if this device has no unpushed local edits
+          // Local pe koi unsaved edit nahi — Sheet wala newer ho to overwrite
           const remoteTime = new Date(remote.updatedAt || 0).getTime();
           const localTime  = new Date(local.updatedAt  || 0).getTime();
           if (remoteTime > localTime) {
             await DB.overwriteFromRemote(storeName, recordId, clean);
           }
         }
-        // If local.synced === false → local has unpushed edit → skip (don't clobber)
+        // local.synced === false → local mein unsaved edit hai → skip (clobber mat karo)
       }
 
-      // FIX 2: Delete-sync — remove local records that were deleted from Sheet
-      // Only for DELETE_SYNC_STORES (deviceTokens) to avoid wiping local-only logs
+      // Sheet se hata diya → local se bhi hatao (sirf DELETE_SYNC_STORES ke liye)
       if (DELETE_SYNC_STORES.includes(storeName)) {
         const localRecords = await DB.getAll(storeName);
         for (const local of localRecords) {
           const localId = local.id || local.deviceId;
           if (!remoteIds.has(localId)) {
-            // This ID is gone from Sheet — remove locally too
             await DB.remove(storeName, localId);
           }
         }
       }
     }
   } catch (err) {
-    // silent — will retry on next interval
+    // silent — agli baar retry hoga
   } finally {
     _pulling = false;
   }
+}
+
+/* ---------- Pill updater ---------- */
+
+async function updateSyncPillFull() {
+  const pill = document.getElementById('syncPill');
+  const text = document.getElementById('syncText');
+  if (!text) return;
+
+  if (!navigator.onLine) {
+    if (pill) pill.classList.add('offline');
+    text.textContent = 'Offline — saving locally';
+    return;
+  }
+
+  if (pill) pill.classList.remove('offline');
+  const pending = await getPendingCount();
+  text.textContent = pending > 0 ? `Online — ${pending} pending` : 'Online — synced';
 }
 
 /* ---------- Helpers ---------- */
@@ -227,23 +248,41 @@ window.Sync = { now: syncNow, requestSync, pullLatest, getPendingCount, restoreF
 let _pushTimer = null;
 let _pullTimer = null;
 
-function startBackgroundSync() {
+async function startBackgroundSync() {
   if (_pushTimer) return;
-  _pushTimer = setInterval(() => { syncNow(); }, PUSH_INTERVAL_MS);
-  _pullTimer = setInterval(() => { pullLatest(); }, PULL_INTERVAL_MS);
-  window.addEventListener('online', () => { syncNow(); pullLatest(); });
-  pullLatest(); // pull immediately on page open
-}
-startBackgroundSync();
 
-// Refresh sync pill with pending count
-(async function refreshSyncPillWithPending() {
-  const pill = document.getElementById('syncText');
-  if (!pill) return;
-  const pending = await getPendingCount();
-  if (navigator.onLine && pending > 0) {
-    pill.textContent = `Online — ${pending} pending`;
-  } else if (navigator.onLine) {
-    pill.textContent = 'Online — synced';
+  // ── STARTUP SEQUENCE ──────────────────────────────
+  // Step 1: Push pehle (marks records as synced)
+  // Step 2: Pull (fresh data aata hai, no dirty flags)
+  // Step 3: Pill update (ab count accurate hai)
+  // Yahi wajah thi "2-3 pending" dikhne ki — pehle
+  // pill chalti thi, push/pull baad mein.
+  if (navigator.onLine) {
+    const { configured } = await getSyncConfig();
+    if (configured) {
+      await syncNow();    // Step 1: push
+      await pullLatest(); // Step 2: pull (sab stores)
+    }
   }
-})();
+  await updateSyncPillFull(); // Step 3: accurate count
+
+  // ── BACKGROUND INTERVALS ──────────────────────────
+  _pushTimer = setInterval(async () => {
+    await syncNow();
+    await updateSyncPillFull();
+  }, PUSH_INTERVAL_MS);
+
+  _pullTimer = setInterval(async () => {
+    await pullLatest();
+    await updateSyncPillFull();
+  }, PULL_INTERVAL_MS);
+
+  window.addEventListener('online', async () => {
+    await syncNow();
+    await pullLatest();
+    await updateSyncPillFull();
+  });
+  window.addEventListener('offline', () => updateSyncPillFull());
+}
+
+startBackgroundSync();
