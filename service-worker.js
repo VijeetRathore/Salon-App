@@ -3,12 +3,12 @@
    + Firebase Cloud Messaging background handler
    + Auto-update detection (postMessage to clients)
 
-   HOW UPDATE WORKS:
-   1. You push new code → CACHE_NAME version bumps
-   2. Browser detects new SW on next app open
-   3. SW installs + calls skipWaiting() immediately
-   4. On activate, posts "SW_UPDATED" to all clients
-   5. shell.js receives it → shows "Update available" banner
+   CHANGES:
+   - Silent sync ping: type='sync' → PULL_NOW → no notification shown
+   - Notification URLs: data.url se sahi page open hoga
+     (bills → billing.html, whatsapp → whatsapp-queue.html)
+   - Fallback URL fix: attendance.html → home.html
+   - Cache version: v20
    ============================================ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
@@ -18,19 +18,34 @@ importScripts('./assets/js/firebase-config.js');
 try {
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
+
   messaging.onBackgroundMessage((payload) => {
-    const title = (payload.notification && payload.notification.title) || 'Get Gorgeous';
+    const type      = (payload.data && payload.data.type) || '';
+    const targetUrl = (payload.data && payload.data.url)  || './home.html';
+
+    // Silent sync ping — notification mat dikhao, sirf clients ko pull karo
+    // Ye tab aata hai jab koi aur device data push karta hai
+    if (type === 'sync') {
+      self.clients.matchAll({ type: 'window' }).then((clients) => {
+        clients.forEach((client) => client.postMessage({ type: 'PULL_NOW' }));
+      });
+      return; // Koi showNotification nahi
+    }
+
+    // Normal visible notification (bills, whatsapp queue)
+    const title   = (payload.notification && payload.notification.title) || 'Get Gorgeous';
     const options = {
-      body: (payload.notification && payload.notification.body) || '',
-      icon: './assets/icons/icon-192.png',
-      data: payload.data || {},
+      body:  (payload.notification && payload.notification.body) || '',
+      icon:  './assets/icons/icon-192.png',
+      // data mein url save karo taaki notificationclick pe sahi page khule
+      data:  { url: targetUrl, type: type },
     };
     self.registration.showNotification(title, options);
   });
 } catch (e) { /* Firebase not configured yet */ }
 
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v19';
+const CACHE_NAME = 'get-gorgeous-v20';
 
 const APP_SHELL = [
   './index.html',
@@ -96,20 +111,17 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
-  self.skipWaiting(); // activate immediately, don't wait for old tabs to close
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     Promise.all([
-      // Delete old caches
       caches.keys().then((names) =>
         Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
       ),
-      // Claim all open clients
       self.clients.claim(),
     ]).then(() => {
-      // Tell every open tab: "new version is live, please refresh"
       self.clients.matchAll({ type: 'window' }).then((clients) => {
         clients.forEach((client) => client.postMessage({ type: 'SW_UPDATED' }));
       });
@@ -138,10 +150,15 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Handle notification click → open app
+// Notification click → sahi page open karo
+// data.url se page decide hota hai (GAS ne set kiya tha)
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || './attendance.html';
+
+  // data.url GAS ne set kiya tha (e.g. './billing.html', './whatsapp-queue.html')
+  // FIX: pehle attendance.html tha — ab home.html fallback hai
+  const url = (event.notification.data && event.notification.data.url) || './home.html';
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((c) => c.url.includes(self.location.origin));
