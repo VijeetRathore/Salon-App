@@ -3,11 +3,12 @@
 
    CHANGES:
    - FCM token refresh: jab token expire/change ho → auto update
-   - Firebase init helper: double-init error nahi aayega
+   - Foreground handler: app open ho tab bhi FCM message handle hoga
    ============================================ */
 
 /* ---- Firebase init (safe — double init nahi hogi) ---- */
 function getFirebaseMessaging() {
+  if (typeof firebase === 'undefined') return null;
   if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
   return firebase.messaging();
 }
@@ -19,7 +20,7 @@ async function enablePush() {
     return;
   }
   if (firebaseConfig.apiKey.startsWith('PASTE-')) {
-    alert('Firebase abhi configure nahi hua — assets/js/firebase-config.js mein apni Firebase project ki values daalo pehle.');
+    alert('Firebase abhi configure nahi hua — assets/js/firebase-config.js update karo.');
     return;
   }
 
@@ -33,19 +34,19 @@ async function enablePush() {
   try {
     const swReg     = await navigator.serviceWorker.ready;
     const messaging = getFirebaseMessaging();
+    if (!messaging) throw new Error('Firebase messaging nahi mila.');
 
-    // Token lo aur save karo
     const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     if (!token) throw new Error('FCM token nahi mila — VAPID key check karo.');
 
     await saveFCMToken(token);
 
-    // Token refresh listener setup karo
-    // Jab FCM token change ho (expire, device change, etc.) → auto update hoga
+    // Token refresh + foreground handlers setup karo
     setupTokenRefresh(messaging, swReg);
+    setupForegroundHandler(messaging);
 
     await refreshPushStatus();
-    alert('Push notifications enabled is device ke liye ✅');
+    alert('Push notifications enabled ✅');
   } catch (err) {
     alert('Push enable karne mein error: ' + (err.message || err));
   }
@@ -53,8 +54,6 @@ async function enablePush() {
 
 /* ---- Token refresh listener ---- */
 function setupTokenRefresh(messaging, swReg) {
-  // onTokenRefresh: jab FCM purana token invalidate kare → naya token lao
-  // Ye tab hota hai jab: user browser data clear kare, Firebase update ho, etc.
   messaging.onTokenRefresh(async () => {
     try {
       const newToken = await messaging.getToken({
@@ -63,37 +62,64 @@ function setupTokenRefresh(messaging, swReg) {
       });
       if (newToken) {
         await saveFCMToken(newToken);
-        console.log('FCM token refreshed aur save ho gaya.');
+        console.log('FCM token refreshed.');
       }
     } catch (err) {
       console.warn('FCM token refresh fail hua:', err);
-      // Koi alert nahi — background process hai, user ko disturb mat karo
     }
   });
 }
 
-/* ---- Token DB mein save karo + sync trigger karo ---- */
+/* ---- Foreground handler ────────────────────────────────
+   Jab app OPEN ho aur FCM message aaye:
+   - type='sync'  → turant pull karo
+   - type='bill'/'whatsapp' → SW ko bolo notification dikhaye  */
+function setupForegroundHandler(messaging) {
+  try {
+    messaging.onMessage(async (payload) => {
+      const type = (payload.data && payload.data.type) || '';
+
+      if (type === 'sync') {
+        // Silent ping → pull trigger
+        if (window.Sync && navigator.onLine) {
+          await Sync.pullLatest();
+        }
+        return;
+      }
+
+      // Visible notification — SW ko message bhejo woh showNotification karega
+      const title = (payload.notification && payload.notification.title) || 'Get Gorgeous';
+      const body  = (payload.notification && payload.notification.body)  || '';
+      const url   = (payload.data && payload.data.url) || './home.html';
+
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SHOW_NOTIFICATION',
+          title, body, url,
+        });
+      }
+    });
+  } catch (e) { /* Firebase ready nahi — ignore */ }
+}
+
+/* ---- Token DB mein save + sync ---- */
 async function saveFCMToken(token) {
-  // DB.update fail karega agar record exist nahi karta — DB.get se check karo pehle
   const existing = await DB.get('deviceTokens', window.DEVICE_ID);
   if (existing) {
     await DB.update('deviceTokens', window.DEVICE_ID, { fcmToken: token });
   } else {
-    // Device record nahi hai — yahan kuch nahi kar sakte
-    // device-id.js pe ensure karo ki deviceTokens mein record pehle se ho
     console.warn('Device token record nahi mila — device setup check karo.');
     return;
   }
-  Sync.requestSync(); // Naya token sheet mein push karo
+  Sync.requestSync();
 }
 
-/* ---- Push status UI update ---- */
+/* ---- Push status UI ---- */
 async function refreshPushStatus() {
   const el = document.getElementById('pushStatus');
   if (!el) return;
   if (typeof Notification === 'undefined') { el.textContent = 'Not supported'; return; }
-  if (Notification.permission === 'denied')  { el.textContent = 'Blocked in browser settings'; return; }
-
+  if (Notification.permission === 'denied') { el.textContent = 'Blocked in browser settings'; return; }
   const me = await DB.get('deviceTokens', window.DEVICE_ID);
   el.textContent = (me && me.fcmToken) ? 'Enabled ✅' : 'Not enabled yet';
 }
