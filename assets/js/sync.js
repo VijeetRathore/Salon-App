@@ -7,10 +7,12 @@
                           devices ko silent ping bhejta hai → woh pull karte hain
    3. SW message        → SW se PULL_NOW milne pe pull trigger
    4. Pull interval     → 15s (sirf jab tab visible ho), safety net
+   5. ggDataUpdated     → pull complete hone pe event — pages turant re-render kar sakti hain
 
    INCREMENTAL PULL:
    - Pehli baar: full pull (lastPulledAt nahi hai)
    - Baad mein: sirf naye/updated records (pullSince action)
+   - pullSince fail ho → fallback to pullAll (older Code.gs compatibility)
    - DELETE_SYNC_STORES ke liye GAS hamesha full data bhejta hai
      (taaki deletions bhi detect ho sakein)
 
@@ -34,14 +36,17 @@ const PULL_STORES = [
 // GAS in stores ka FULL data bhejta hai (incremental pull mein bhi)
 const DELETE_SYNC_STORES = ['deviceTokens', 'staff'];
 
+// Kuch stores ka keyPath 'id' nahi hota — in par special handling chahiye
+const STORE_KEYPATH = { deviceTokens: 'deviceId' };
+
 const JSON_FIELDS = {
   services: ['consumption'],
   bills: ['items'],
 };
 
-const PUSH_INTERVAL_MS  = 30 * 1000;
-const PULL_INTERVAL_MS  = 15 * 1000; // 15s — lekin sirf jab tab visible ho
-const PUSH_DEBOUNCE_MS  = 1500;
+const PUSH_INTERVAL_MS = 30 * 1000;
+const PULL_INTERVAL_MS = 15 * 1000; // sirf jab tab visible ho
+const PUSH_DEBOUNCE_MS = 1500;
 
 let _syncing = false;
 let _pulling = false;
@@ -49,8 +54,20 @@ let _pulling = false;
 async function getSyncConfig() {
   const gasUrl   = GAS_URL;
   const gasToken = GAS_TOKEN;
-  const configured = !!(gasUrl && gasToken && !gasUrl.startsWith('PASTE-') && !gasToken.startsWith('PASTE-'));
+  const configured = !!(gasUrl && gasToken
+    && !gasUrl.startsWith('PASTE-') && !gasToken.startsWith('PASTE-'));
   return { gasUrl, gasToken, configured };
+}
+
+/* Store ka actual primary key field kya hai */
+function getKeyField(storeName) {
+  return STORE_KEYPATH[storeName] || 'id';
+}
+
+/* Remote record se primary key value nikalo */
+function getRecordKey(storeName, record) {
+  const kf = getKeyField(storeName);
+  return record[kf] || record.id || record.deviceId;
 }
 
 /* ---------- PUSH ---------- */
@@ -80,7 +97,8 @@ async function pushPhotos(gasUrl, gasToken) {
       method: 'POST',
       body: JSON.stringify({
         token: gasToken, action: 'uploadPhoto',
-        dataUrl: photo.localDataUrl, fileName: `${photo.customerId}_${photo.type}_${photo.id}.jpg`,
+        dataUrl: photo.localDataUrl,
+        fileName: `${photo.customerId}_${photo.type}_${photo.id}.jpg`,
       }),
     });
     const json = await res.json();
@@ -125,13 +143,12 @@ async function syncNow(onProgress) {
   }
 }
 
-/* Kuch push hone ke baad GAS ko bolta hai: "baaki devices ko pull karo"
-   GAS FCM silent push bhejta hai → unke SW se PULL_NOW message aata hai */
+/* Push ke baad GAS ko bolta hai: "baaki devices ko pull karo"
+   GAS → FCM silent push → SW → PULL_NOW → pull trigger */
 function sendSyncPing(gasUrl, gasToken) {
   try {
     fetch(`${gasUrl}?action=sendSyncPing&token=${encodeURIComponent(gasToken)}`);
-    // Fire and forget — response ki zaroorat nahi
-  } catch (e) { /* silent */ }
+  } catch (e) { /* silent — fire and forget */ }
 }
 
 let _pushDebounceTimer = null;
@@ -140,7 +157,7 @@ function requestSync() {
   _pushDebounceTimer = setTimeout(() => { syncNow(); }, PUSH_DEBOUNCE_MS);
 }
 
-/* ---------- PULL (Incremental) ---------- */
+/* ---------- PULL (Incremental with fallback) ---------- */
 
 function parseJsonFields(storeName, record) {
   const fields = JSON_FIELDS[storeName];
@@ -154,6 +171,24 @@ function parseJsonFields(storeName, record) {
   return copy;
 }
 
+async function _fetchPullData(gasUrl, gasToken, since) {
+  // 1st attempt: incremental (pullSince) agar since available hai
+  if (since) {
+    try {
+      const url = `${gasUrl}?action=pullSince&since=${encodeURIComponent(since)}&token=${encodeURIComponent(gasToken)}`;
+      const res  = await fetch(url);
+      const json = await res.json();
+      if (json.ok) return json;
+      // pullSince fail hua (purana Code.gs deployed hai) → fallback
+    } catch { /* network error → fallback */ }
+  }
+
+  // Fallback: full pull (hamesha kaam karta hai)
+  const url = `${gasUrl}?action=pullAll&token=${encodeURIComponent(gasToken)}`;
+  const res  = await fetch(url);
+  return await res.json();
+}
+
 async function pullLatest() {
   if (_pulling) return;
   const { gasUrl, gasToken, configured } = await getSyncConfig();
@@ -161,29 +196,25 @@ async function pullLatest() {
 
   _pulling = true;
   try {
-    // lastPulledAt se incremental pull — pehli baar null hoga (full pull hoga)
     const lastPulledAt = await DB.getSetting('lastPulledAt');
-
-    // 60 second buffer — clock skew handle karne ke liye
+    // 60s buffer — clock skew handle karne ke liye
     const since = lastPulledAt
       ? new Date(new Date(lastPulledAt).getTime() - 60_000).toISOString()
       : null;
 
-    // since=null → GAS pullAll bhejega, since=timestamp → sirf naye records
-    const url = since
-      ? `${gasUrl}?action=pullSince&since=${encodeURIComponent(since)}&token=${encodeURIComponent(gasToken)}`
-      : `${gasUrl}?action=pullAll&token=${encodeURIComponent(gasToken)}`;
-
-    const res = await fetch(url);
-    const json = await res.json();
-    if (!json.ok) return;
+    const json = await _fetchPullData(gasUrl, gasToken, since);
+    if (!json || !json.ok) return;
 
     for (const storeName of PULL_STORES) {
       const remoteRecords = json.data[storeName] || [];
-      const remoteIds = new Set(remoteRecords.map(r => r.id || r.deviceId).filter(Boolean));
+
+      // Correct key field use karo (deviceTokens → deviceId, baaki → id)
+      const remoteIds = new Set(
+        remoteRecords.map(r => getRecordKey(storeName, r)).filter(Boolean)
+      );
 
       for (const remote of remoteRecords) {
-        const recordId = remote.id || remote.deviceId;
+        const recordId = getRecordKey(storeName, remote);
         if (!recordId) continue;
         const clean = parseJsonFields(storeName, remote);
         const local = await DB.get(storeName, recordId);
@@ -191,22 +222,23 @@ async function pullLatest() {
         if (!local) {
           await DB.overwriteFromRemote(storeName, recordId, clean);
         } else if (local.synced !== false) {
+          // Sirf overwrite karo agar remote newer hai
           const remoteTime = new Date(remote.updatedAt || 0).getTime();
           const localTime  = new Date(local.updatedAt  || 0).getTime();
           if (remoteTime > localTime) {
             await DB.overwriteFromRemote(storeName, recordId, clean);
           }
         }
-        // local.synced === false → unsaved local edit → skip
+        // local.synced === false → unsaved local edit → skip (local wins)
       }
 
-      // DELETE_SYNC_STORES: GAS hamesha full data bhejta hai (incremental mein bhi)
-      // Isliye deletions bhi detect ho jaati hain
+      // DELETE_SYNC_STORES: GAS full data bhejta hai (incremental mein bhi)
+      // Local mein jo nahi hai remote mein → delete karo
       if (DELETE_SYNC_STORES.includes(storeName)) {
         const localRecords = await DB.getAll(storeName);
         for (const local of localRecords) {
-          const localId = local.id || local.deviceId;
-          if (!remoteIds.has(localId)) {
+          const localId = getRecordKey(storeName, local);
+          if (localId && !remoteIds.has(localId)) {
             await DB.remove(storeName, localId);
           }
         }
@@ -215,6 +247,9 @@ async function pullLatest() {
 
     // Next pull ke liye timestamp save karo
     await DB.setSetting('lastPulledAt', json.pulledAt || new Date().toISOString());
+
+    // Sabhi open pages ko batao: "naya data aaya, re-render karo"
+    window.dispatchEvent(new CustomEvent('ggDataUpdated'));
 
   } catch (err) {
     // silent — agli baar retry hoga
@@ -256,28 +291,35 @@ async function restoreFromCloud() {
   const { gasUrl, gasToken, configured } = await getSyncConfig();
   if (!configured) return { ok: false, error: 'Sync not set up yet' };
 
-  // restoreFromCloud hamesha full pull karta hai
-  const res = await fetch(`${gasUrl}?action=pullAll&token=${encodeURIComponent(gasToken)}`);
+  const res  = await fetch(`${gasUrl}?action=pullAll&token=${encodeURIComponent(gasToken)}`);
   const json = await res.json();
   if (!json.ok) return { ok: false, error: json.error };
 
   for (const [storeName, records] of Object.entries(json.data)) {
     for (const record of records) {
-      if (!record.id) continue;
+      const recordId = getRecordKey(storeName, record);
+      if (!recordId) continue;
       const clean = parseJsonFields(storeName, record);
-      const existing = await DB.get(storeName, record.id);
+      const existing = await DB.get(storeName, recordId);
       if (!existing) {
         await DB.add(storeName, { ...clean, synced: true });
       }
     }
   }
 
-  // Full pull ke baad timestamp set karo
   await DB.setSetting('lastPulledAt', new Date().toISOString());
+  window.dispatchEvent(new CustomEvent('ggDataUpdated'));
   return { ok: true };
 }
 
-window.Sync = { now: syncNow, requestSync, pullLatest, getPendingCount, restoreFromCloud, getSyncConfig };
+window.Sync = {
+  now: syncNow,
+  requestSync,
+  pullLatest,
+  getPendingCount,
+  restoreFromCloud,
+  getSyncConfig,
+};
 
 /* ---------- Background loops + Real-time triggers ---------- */
 
@@ -287,30 +329,30 @@ let _pullTimer = null;
 async function startBackgroundSync() {
   if (_pushTimer) return;
 
-  // ── STARTUP SEQUENCE ──────────────────────────────
+  // ── STARTUP SEQUENCE ──────────────────────────────────────
   if (navigator.onLine) {
     const { configured } = await getSyncConfig();
     if (configured) {
-      await syncNow();    // Step 1: push pending
-      await pullLatest(); // Step 2: incremental pull
+      await syncNow();    // push pending
+      await pullLatest(); // fresh data fetch
     }
   }
-  await updateSyncPillFull(); // Step 3: accurate count
+  await updateSyncPillFull();
 
-  // ── BACKGROUND INTERVALS ──────────────────────────
+  // ── PUSH INTERVAL (30s) ───────────────────────────────────
   _pushTimer = setInterval(async () => {
     await syncNow();
     await updateSyncPillFull();
   }, PUSH_INTERVAL_MS);
 
+  // ── PULL INTERVAL (15s, sirf visible tab) ─────────────────
   _pullTimer = setInterval(async () => {
-    // Sirf tab visible ho tab pull karo — hidden tab bandwidth waste na kare
     if (document.hidden) return;
     await pullLatest();
     await updateSyncPillFull();
   }, PULL_INTERVAL_MS);
 
-  // ── ONLINE/OFFLINE ─────────────────────────────────
+  // ── ONLINE/OFFLINE ────────────────────────────────────────
   window.addEventListener('online', async () => {
     await syncNow();
     await pullLatest();
@@ -318,9 +360,7 @@ async function startBackgroundSync() {
   });
   window.addEventListener('offline', () => updateSyncPillFull());
 
-  // ── REAL-TIME: visibilityChange ────────────────────
-  // Jab bhi user app pe wapas aaye (tab switch, phone unlock, etc.)
-  // turant push + pull hota hai — polling ka intezaar nahi
+  // ── VISIBILITY CHANGE (app foreground = turant sync) ──────
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible' || !navigator.onLine) return;
     const { configured } = await getSyncConfig();
@@ -330,9 +370,7 @@ async function startBackgroundSync() {
     await updateSyncPillFull();
   });
 
-  // ── REAL-TIME: FCM silent ping listener ───────────
-  // Jab Device A push karta hai → GAS FCM silent ping bhejta hai
-  // → Service Worker PULL_NOW message bhejta hai → hum pull karte hain
+  // ── FCM SILENT PING (Device A push → PULL_NOW → pull) ────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (event) => {
       if (event.data && event.data.type === 'PULL_NOW') {
