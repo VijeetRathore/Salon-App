@@ -166,3 +166,6 @@ async function changePin() {
 }
 
 init();
+
+// Jab bhi pull complete ho (kisi bhi page se) → device list refresh karo
+window.addEventListener('ggDataUpdated', () => loadDeviceList());
