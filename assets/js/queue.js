@@ -72,8 +72,19 @@ async function markSent(id) {
   }
   await DB.update('pendingMessages', id, { status: 'sent', sentAt: new Date().toISOString() });
   Sync.requestSync();
-  setTimeout(loadQueue, 300); // small delay so the WhatsApp tap isn't interrupted
+  setTimeout(loadQueue, 300);
 }
 
+// ── Auto-refresh ──────────────────────────────────────────────
+// 1. Interval: har 5 seconds (was 10s)
+// 2. ggDataUpdated: pull complete hone pe turant refresh
+// 3. visibilitychange: jab phone unlock ho ya tab switch ho
 loadQueue();
-setInterval(loadQueue, 10000); // pick up new queued messages / other master's sends quickly
+
+setInterval(loadQueue, 5000);
+
+window.addEventListener('ggDataUpdated', () => loadQueue());
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadQueue();
+});
