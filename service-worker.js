@@ -3,12 +3,12 @@
    + Firebase Cloud Messaging background handler
    + Auto-update detection (postMessage to clients)
 
+   CACHE VERSION: v21
    CHANGES:
-   - Silent sync ping: type='sync' → PULL_NOW → no notification shown
-   - Notification URLs: data.url se sahi page open hoga
-     (bills → billing.html, whatsapp → whatsapp-queue.html)
-   - Fallback URL fix: attendance.html → home.html
-   - Cache version: v20
+   - type='sync' → PULL_NOW → no notification
+   - type='bill'/'whatsapp' → show notification with correct URL
+   - SHOW_NOTIFICATION message handler (foreground pages se)
+   - Notification click fallback: attendance.html → home.html
    ============================================ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
@@ -23,29 +23,40 @@ try {
     const type      = (payload.data && payload.data.type) || '';
     const targetUrl = (payload.data && payload.data.url)  || './home.html';
 
-    // Silent sync ping — notification mat dikhao, sirf clients ko pull karo
-    // Ye tab aata hai jab koi aur device data push karta hai
+    // Silent sync ping → all clients ko PULL_NOW bhejo, koi notification nahi
     if (type === 'sync') {
       self.clients.matchAll({ type: 'window' }).then((clients) => {
         clients.forEach((client) => client.postMessage({ type: 'PULL_NOW' }));
       });
-      return; // Koi showNotification nahi
+      return;
     }
 
-    // Normal visible notification (bills, whatsapp queue)
+    // Visible notification (bill, whatsapp, etc.)
     const title   = (payload.notification && payload.notification.title) || 'Get Gorgeous';
     const options = {
       body:  (payload.notification && payload.notification.body) || '',
       icon:  './assets/icons/icon-192.png',
-      // data mein url save karo taaki notificationclick pe sahi page khule
-      data:  { url: targetUrl, type: type },
+      data:  { url: targetUrl, type },
     };
     self.registration.showNotification(title, options);
   });
 } catch (e) { /* Firebase not configured yet */ }
 
+/* ---- Main page se SHOW_NOTIFICATION request handle karo ---- */
+/* (Jab app foreground mein ho aur FCM message aaye) */
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+  if (event.data.type === 'SHOW_NOTIFICATION') {
+    self.registration.showNotification(event.data.title || 'Get Gorgeous', {
+      body: event.data.body || '',
+      icon: './assets/icons/icon-192.png',
+      data: { url: event.data.url || './home.html' },
+    });
+  }
+});
+
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v20';
+const CACHE_NAME = 'get-gorgeous-v21';
 
 const APP_SHELL = [
   './index.html',
@@ -129,7 +140,6 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Cache-first for app shell; network-first fallback for everything else
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -150,13 +160,9 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Notification click → sahi page open karo
-// data.url se page decide hota hai (GAS ne set kiya tha)
+// Notification click → data.url se sahi page kholo
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  // data.url GAS ne set kiya tha (e.g. './billing.html', './whatsapp-queue.html')
-  // FIX: pehle attendance.html tha — ab home.html fallback hai
   const url = (event.notification.data && event.notification.data.url) || './home.html';
 
   event.waitUntil(
