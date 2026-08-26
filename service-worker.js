@@ -23,22 +23,27 @@ try {
     const type      = (payload.data && payload.data.type) || '';
     const targetUrl = (payload.data && payload.data.url)  || './home.html';
 
-    // Silent sync ping → all clients ko PULL_NOW bhejo, koi notification nahi
+    // Silent sync ping → open clients ko PULL_NOW bhejo
+    // IMPORTANT: promise return karo — warna Firebase SDK SW ko
+    // promise resolve hone se pehle terminate kar deta hai
     if (type === 'sync') {
-      self.clients.matchAll({ type: 'window' }).then((clients) => {
-        clients.forEach((client) => client.postMessage({ type: 'PULL_NOW' }));
-      });
-      return;
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then((clients) => {
+          clients.forEach((client) => client.postMessage({ type: 'PULL_NOW' }));
+        });
     }
 
     // Visible notification (bill, whatsapp, etc.)
+    // IMPORTANT: showNotification ka promise return karo
     const title   = (payload.notification && payload.notification.title) || 'Get Gorgeous';
     const options = {
       body:  (payload.notification && payload.notification.body) || '',
       icon:  './assets/icons/icon-192.png',
+      badge: './assets/icons/icon-72.png',
       data:  { url: targetUrl, type },
+      requireInteraction: false,
     };
-    self.registration.showNotification(title, options);
+    return self.registration.showNotification(title, options);
   });
 } catch (e) { /* Firebase not configured yet */ }
 

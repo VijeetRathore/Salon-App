@@ -70,6 +70,11 @@ function doGet(e) {
       return jsonResponse({ ok: true });
     }
 
+    // --- DIAGNOSTIC: browser se call karo, FCM pipeline check karo ---
+    if (e.parameter.action === 'testFCM') {
+      return jsonResponse(testFCMDiagnostic());
+    }
+
     return jsonResponse({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err) });
@@ -330,6 +335,109 @@ function sendFCMMessage(accessToken, fcmToken, title, body, type, targetUrl) {
     payload:     JSON.stringify({ message: messagePayload }),
     muteHttpExceptions: true,
   });
+}
+
+/* ============================================
+   DIAGNOSTIC — FCM pipeline test
+   Browser se call karo:
+   GAS_URL?action=testFCM&token=getgorgeous_2026
+   ============================================ */
+function testFCMDiagnostic() {
+  const result = {
+    step1_scriptProperties: {},
+    step2_deviceTokens: [],
+    step3_accessToken: null,
+    step4_fcmSend: [],
+    errors: [],
+  };
+
+  // Step 1: Script Properties check
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const projectId   = props.getProperty('FCM_PROJECT_ID');
+    const clientEmail = props.getProperty('FCM_CLIENT_EMAIL');
+    const privateKey  = props.getProperty('FCM_PRIVATE_KEY');
+    result.step1_scriptProperties = {
+      FCM_PROJECT_ID:   projectId   ? '✅ set (' + projectId + ')' : '❌ MISSING',
+      FCM_CLIENT_EMAIL: clientEmail ? '✅ set'                     : '❌ MISSING',
+      FCM_PRIVATE_KEY:  privateKey  ? '✅ set'                     : '❌ MISSING',
+    };
+    if (!projectId || !clientEmail || !privateKey) {
+      result.errors.push('Script Properties set nahi hain — GAS → Project Settings → Script Properties mein daalo');
+    }
+  } catch (err) {
+    result.errors.push('Script Properties read error: ' + err);
+  }
+
+  // Step 2: deviceTokens sheet check
+  try {
+    const sheet = getDeviceTokenSheet();
+    if (!sheet) {
+      result.step2_deviceTokens = '❌ deviceTokens sheet empty ya exist nahi karti';
+      result.errors.push('Koi device token nahi mila — Settings mein jaake Enable Push Notifications dabaao');
+    } else {
+      const { values, headers } = getSheetData(sheet);
+      const tokenIdx  = headers.indexOf('fcmToken');
+      const masterIdx = headers.indexOf('isMaster');
+      const deviceIdx = headers.indexOf('deviceId');
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        result.step2_deviceTokens.push({
+          deviceId: deviceIdx >= 0 ? String(row[deviceIdx] || '').substring(0, 12) + '...' : '?',
+          isMaster: masterIdx >= 0 ? row[masterIdx] : '?',
+          hasToken: tokenIdx >= 0 && String(row[tokenIdx] || '').length > 10,
+          tokenPreview: tokenIdx >= 0 ? String(row[tokenIdx] || '').substring(0, 20) + '...' : '❌',
+        });
+      }
+      if (result.step2_deviceTokens.length === 0) {
+        result.errors.push('deviceTokens sheet mein koi row nahi — push enable karo');
+      }
+    }
+  } catch (err) {
+    result.errors.push('deviceTokens check error: ' + err);
+  }
+
+  // Step 3: Access token fetch
+  try {
+    result.step3_accessToken = getFCMAccessToken() ? '✅ access token mila' : '❌ null token';
+  } catch (err) {
+    result.step3_accessToken = '❌ FAILED: ' + String(err);
+    result.errors.push('FCM Auth fail — service account credentials check karo: ' + String(err));
+  }
+
+  // Step 4: Test notification bhejo (sirf agar token mila)
+  if (result.step3_accessToken && result.step3_accessToken.startsWith('✅')) {
+    try {
+      const sheet = getDeviceTokenSheet();
+      if (sheet) {
+        const { values, headers } = getSheetData(sheet);
+        const tokenIdx = headers.indexOf('fcmToken');
+        let accessToken = null;
+        try { accessToken = getFCMAccessToken(); } catch (e) { }
+        for (let i = 1; i < values.length; i++) {
+          const token = String(values[i][tokenIdx] || '').trim();
+          if (!token || !accessToken) continue;
+          try {
+            sendFCMMessage(accessToken, token, '🧪 Test Notification', 'FCM kaam kar raha hai!', 'bill', './home.html');
+            result.step4_fcmSend.push('✅ sent to token: ' + token.substring(0, 20) + '...');
+          } catch (err) {
+            result.step4_fcmSend.push('❌ failed: ' + String(err));
+            result.errors.push('FCM send fail: ' + String(err));
+          }
+        }
+      }
+    } catch (err) {
+      result.step4_fcmSend.push('❌ error: ' + String(err));
+    }
+  } else {
+    result.step4_fcmSend = ['⏭️ skipped — Step 3 fail tha'];
+  }
+
+  result.summary = result.errors.length === 0
+    ? '✅ Sab theek lag raha hai — notification device pe check karo'
+    : '❌ ' + result.errors.length + ' problem(s) mili: ' + result.errors.join(' | ');
+
+  return result;
 }
 
 function getFCMAccessToken() {
