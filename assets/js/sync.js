@@ -32,9 +32,15 @@ const PULL_STORES = [
   'attendance', 'pendingMessages', 'deviceTokens',
 ];
 
-// In stores mein Sheet se delete hone pe local se bhi hatao
-// GAS in stores ka FULL data bhejta hai (incremental pull mein bhi)
-const DELETE_SYNC_STORES = ['deviceTokens', 'staff'];
+// In SABHI stores mein Sheet se delete hone pe local se bhi hatao.
+// GAS pullSince mein bhi in stores ka FULL data bhejta hai —
+// client remote vs local compare karta hai aur missing records delete karta hai.
+// Matlab: Sheet = source of truth. Jo Sheet mein nahi, app mein bhi nahi.
+const DELETE_SYNC_STORES = [
+  'customers', 'appointments', 'services', 'bills', 'products',
+  'purchases', 'stockTransactions', 'expenses', 'staff',
+  'attendance', 'pendingMessages', 'deviceTokens',
+];
 
 // Kuch stores ka keyPath 'id' nahi hota — in par special handling chahiye
 const STORE_KEYPATH = { deviceTokens: 'deviceId' };

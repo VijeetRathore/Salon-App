@@ -1,37 +1,37 @@
 /* ============================================
-   Code.gs — Get Gorgeous backend
-   HOW TO USE:
-   1. Open your Google Sheet → Extensions → Apps Script
-   2. Delete any starter code, paste this whole file
-   3. Replace SECRET_TOKEN below with your own long random string
-   4. Create a Drive folder for photos, paste its ID into DRIVE_FOLDER_ID
-   5. Deploy → New deployment → type "Web app"
-        - Execute as: Me
-        - Who has access: Anyone
-      Click Deploy, copy the Web App URL.
-   6. Paste that URL + your SECRET_TOKEN into the app's Settings page.
+   Code.gs — Get Gorgeous backend (Google Apps Script)
 
-   FOR PUSH NOTIFICATIONS (optional but you asked for it):
-   7. Set up a Firebase project (see the separate instructions given
-      alongside this file) and get a service account key.
-   8. In THIS Apps Script project: Project Settings (⚙ left sidebar)
-      → Script Properties → Add 3 properties:
-        FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY
-      (values come from the Firebase service account JSON file —
-      NEVER put these directly in this code file, since this file
-      may end up in a public GitHub repo; Script Properties stays
-      private to this Apps Script project.)
-   9. Whenever you edit this file, redeploy: Deploy → Manage
-      deployments → Edit (pencil) → New version → Deploy.
+   CHANGES IN THIS VERSION:
+   - pullSince: incremental pull (sirf naye records)
+   - sendSyncPing: push ke baad baaki devices ko silent FCM ping
+   - Bill notification: nayi bill pe master device ko push
+   - FCM URL fix: data.url se correct page open hota hai
+
+   SCRIPT PROPERTIES (Project Settings → Script Properties):
+     FCM_PROJECT_ID   → Firebase project ID
+     FCM_CLIENT_EMAIL → service account client_email
+     FCM_PRIVATE_KEY  → service account private_key (with \n)
    ============================================ */
 
-const SECRET_TOKEN = 'CHANGE-THIS-TO-A-LONG-RANDOM-STRING';
-const DRIVE_FOLDER_ID = 'PASTE-YOUR-DRIVE-FOLDER-ID-HERE';
+const SECRET_TOKEN    = 'getgorgeous_2026';
+const DRIVE_FOLDER_ID = '1kk44K2jR1gMl8gFYfgejDkPCuzEnCvtI';
 
 const SHEET_NAMES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff', 'attendance', 'pendingMessages', 'deviceTokens',
 ];
+
+// Ye stores ka FULL data incremental pull mein bhi bhejte hain
+// (taaki client deletions detect kar sake — Sheet = source of truth)
+const DELETE_SYNC_STORES = [
+  'customers', 'appointments', 'services', 'bills', 'products',
+  'purchases', 'stockTransactions', 'expenses', 'staff',
+  'attendance', 'pendingMessages', 'deviceTokens',
+];
+
+/* ============================================
+   ROUTING
+   ============================================ */
 
 function doPost(e) {
   try {
@@ -39,7 +39,6 @@ function doPost(e) {
     if (body.token !== SECRET_TOKEN) {
       return jsonResponse({ ok: false, error: 'Invalid token' });
     }
-
     if (body.action === 'pushRecords') {
       return jsonResponse(pushRecords(body.storeName, body.records));
     }
@@ -60,13 +59,26 @@ function doGet(e) {
     if (e.parameter.action === 'pullAll') {
       return jsonResponse(pullAll());
     }
+
+    if (e.parameter.action === 'pullSince') {
+      const since = e.parameter.since || null;
+      return jsonResponse(pullSince(since));
+    }
+
+    if (e.parameter.action === 'sendSyncPing') {
+      try { notifyAllDevicesSilent(); } catch (err) { /* FCM not configured — ignore */ }
+      return jsonResponse({ ok: true });
+    }
+
     return jsonResponse({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err) });
   }
 }
 
-/* ---------- Push: upsert rows into the matching sheet tab ---------- */
+/* ============================================
+   PUSH: upsert rows into sheet tabs
+   ============================================ */
 
 function pushRecords(storeName, records) {
   if (!SHEET_NAMES.includes(storeName)) return { ok: false, error: 'Unknown store: ' + storeName };
@@ -92,8 +104,25 @@ function pushRecords(storeName, records) {
   if (storeName === 'pendingMessages') {
     const newPending = records.filter((r) => r.status === 'pending');
     if (newPending.length) {
-      try { notifyMasterDevices(newPending.length); } catch (err) { /* don't fail the sync over a notification error */ }
+      try {
+        notifyMasterDevices(
+          newPending.length,
+          'whatsapp',
+          'New WhatsApp Message to Send',
+          `${newPending.length} bill/offer message(s) waiting in the WhatsApp Queue`,
+          './whatsapp-queue.html'
+        );
+      } catch (err) { }
     }
+  }
+
+  if (storeName === 'bills' && records.length > 0) {
+    try {
+      const totalAmount = records.reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+      const title = records.length === 1 ? 'New Bill Created' : `${records.length} Bills Created`;
+      const body  = `Total: ₹${totalAmount.toLocaleString('en-IN')}`;
+      notifyMasterDevices(records.length, 'bill', title, body, './billing.html');
+    } catch (err) { }
   }
 
   return { ok: true, synced: records.length };
@@ -126,7 +155,9 @@ function findRowById(sheet, id) {
   return idx === -1 ? -1 : idx + 2;
 }
 
-/* ---------- Pull: full backup/restore ---------- */
+/* ============================================
+   PULL: full (pehli baar / restore)
+   ============================================ */
 
 function pullAll() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -142,10 +173,47 @@ function pullAll() {
       return obj;
     });
   });
-  return { ok: true, data: result };
+  return { ok: true, data: result, pulledAt: new Date().toISOString() };
 }
 
-/* ---------- Photos → Drive ---------- */
+/* ============================================
+   PULL: incremental (normal background sync)
+   DELETE_SYNC_STORES ke liye hamesha full data —
+   baaki ke liye sirf since ke baad wale records
+   ============================================ */
+
+function pullSince(sinceIso) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = {};
+  const sinceTime = sinceIso ? new Date(sinceIso).getTime() : 0;
+
+  SHEET_NAMES.forEach((name) => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 2) { result[name] = []; return; }
+
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0];
+    const allRows = values.slice(1).map((row) => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    });
+
+    const needFull = !sinceTime || DELETE_SYNC_STORES.includes(name);
+    result[name] = needFull
+      ? allRows
+      : allRows.filter((obj) => {
+          const rowTime = obj.updatedAt ? new Date(obj.updatedAt).getTime() : 0;
+          return rowTime > sinceTime;
+        });
+  });
+
+  return { ok: true, data: result, pulledAt: new Date().toISOString() };
+}
+
+/* ============================================
+   PHOTOS → Drive
+   ============================================ */
 
 function uploadPhoto(dataUrl, fileName) {
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
@@ -158,7 +226,9 @@ function uploadPhoto(dataUrl, fileName) {
   return { ok: true, url: file.getUrl(), id: file.getId() };
 }
 
-/* ---------- Sync log ---------- */
+/* ============================================
+   SYNC LOG
+   ============================================ */
 
 function logSync(storeName, count) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -175,96 +245,125 @@ function jsonResponse(obj) {
 }
 
 /* ============================================
-   Push Notifications (Firebase Cloud Messaging)
-   Requires Script Properties (Project Settings ⚙ →
-   Script Properties in the Apps Script editor):
-     FCM_PROJECT_ID   → Firebase project ID
-     FCM_CLIENT_EMAIL → service account "client_email"
-     FCM_PRIVATE_KEY  → service account "private_key"
-                        (paste exactly as in the JSON file,
-                        including the \n sequences)
+   PUSH NOTIFICATIONS (Firebase Cloud Messaging)
    ============================================ */
 
-function notifyMasterDevices(count) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('deviceTokens');
-  if (!sheet || sheet.getLastRow() < 2) return;
+function notifyMasterDevices(count, type, title, body, targetUrl) {
+  const sheet = getDeviceTokenSheet();
+  if (!sheet) return;
 
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0];
-  const tokenIdx = headers.indexOf('fcmToken');
+  const { values, headers } = getSheetData(sheet);
+  const tokenIdx  = headers.indexOf('fcmToken');
   const masterIdx = headers.indexOf('isMaster');
   if (tokenIdx === -1 || masterIdx === -1) return;
 
   let accessToken = null;
-
   for (let i = 1; i < values.length; i++) {
-    const row = values[i];
+    const row      = values[i];
     const isMaster = row[masterIdx] === true || row[masterIdx] === 'TRUE';
-    const token = row[tokenIdx];
+    const token    = String(row[tokenIdx] || '').trim();
     if (!isMaster || !token) continue;
 
-    if (!accessToken) accessToken = getFCMAccessToken(); // fetch once, reuse for all devices
+    if (!accessToken) accessToken = getFCMAccessToken();
     try {
-      sendPushNotification(accessToken, token, 'New WhatsApp Message to Send',
-        `${count} bill/offer message(s) waiting in the WhatsApp Queue`);
-    } catch (err) { /* keep trying other devices */ }
+      sendFCMMessage(accessToken, token, title, body, type, targetUrl);
+    } catch (err) { }
   }
 }
 
-function getFCMAccessToken() {
-  const props = PropertiesService.getScriptProperties();
-  const clientEmail = props.getProperty('FCM_CLIENT_EMAIL');
-  const privateKey = props.getProperty('FCM_PRIVATE_KEY').replace(/\\n/g, '\n');
+function notifyAllDevicesSilent() {
+  const sheet = getDeviceTokenSheet();
+  if (!sheet) return;
 
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
+  const { values, headers } = getSheetData(sheet);
+  const tokenIdx = headers.indexOf('fcmToken');
+  if (tokenIdx === -1) return;
+
+  let accessToken = null;
+  for (let i = 1; i < values.length; i++) {
+    const token = String(values[i][tokenIdx] || '').trim();
+    if (!token) continue;
+    if (!accessToken) {
+      try { accessToken = getFCMAccessToken(); } catch (err) { return; }
+    }
+    try {
+      sendFCMMessage(accessToken, token, null, null, 'sync', null);
+    } catch (err) { }
+  }
+}
+
+function getDeviceTokenSheet() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('deviceTokens');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  return sheet;
+}
+
+function getSheetData(sheet) {
+  const values  = sheet.getDataRange().getValues();
+  const headers = values[0];
+  return { values, headers };
+}
+
+function sendFCMMessage(accessToken, fcmToken, title, body, type, targetUrl) {
+  const projectId = PropertiesService.getScriptProperties().getProperty('FCM_PROJECT_ID');
+
+  const messagePayload = {
+    token: fcmToken,
+    data: {
+      type: type      || 'general',
+      url:  targetUrl || './home.html',
+    },
+  };
+
+  if (title && body) {
+    messagePayload.notification = { title, body };
+    messagePayload.webpush = {
+      notification: { icon: '/assets/icons/icon-192.png' },
+    };
+  }
+
+  UrlFetchApp.fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+    method:      'post',
+    contentType: 'application/json',
+    headers:     { Authorization: 'Bearer ' + accessToken },
+    payload:     JSON.stringify({ message: messagePayload }),
+    muteHttpExceptions: true,
+  });
+}
+
+function getFCMAccessToken() {
+  const props       = PropertiesService.getScriptProperties();
+  const clientEmail = props.getProperty('FCM_CLIENT_EMAIL');
+  const privateKey  = props.getProperty('FCM_PRIVATE_KEY').replace(/\\n/g, '\n');
+
+  const header   = { alg: 'RS256', typ: 'JWT' };
+  const now      = Math.floor(Date.now() / 1000);
   const claimSet = {
-    iss: clientEmail,
+    iss:   clientEmail,
     scope: 'https://www.googleapis.com/auth/firebase.messaging',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now,
+    aud:   'https://oauth2.googleapis.com/token',
+    exp:   now + 3600,
+    iat:   now,
   };
 
   const base64url = (obj) => Utilities.base64EncodeWebSafe(JSON.stringify(obj)).replace(/=+$/, '');
-  const toSign = base64url(header) + '.' + base64url(claimSet);
-  const signatureBytes = Utilities.computeRsaSha256Signature(toSign, privateKey);
-  const signature = Utilities.base64EncodeWebSafe(signatureBytes).replace(/=+$/, '');
-  const jwt = toSign + '.' + signature;
+  const toSign    = base64url(header) + '.' + base64url(claimSet);
+  const sigBytes  = Utilities.computeRsaSha256Signature(toSign, privateKey);
+  const signature = Utilities.base64EncodeWebSafe(sigBytes).replace(/=+$/, '');
+  const jwt       = toSign + '.' + signature;
 
   const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
-    method: 'post',
+    method:      'post',
     contentType: 'application/x-www-form-urlencoded',
     payload: {
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
+      assertion:  jwt,
     },
     muteHttpExceptions: true,
   });
+
   const json = JSON.parse(response.getContentText());
   if (!json.access_token) throw new Error('FCM auth failed: ' + response.getContentText());
   return json.access_token;
-}
-
-function sendPushNotification(accessToken, fcmToken, title, body) {
-  const projectId = PropertiesService.getScriptProperties().getProperty('FCM_PROJECT_ID');
-  const message = {
-    message: {
-      token: fcmToken,
-      notification: { title: title, body: body },
-      webpush: {
-        notification: { icon: '/assets/icons/icon-192.png' },
-        fcm_options: { link: '/whatsapp-queue.html' },
-      },
-    },
-  };
-
-  UrlFetchApp.fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + accessToken },
-    payload: JSON.stringify(message),
-    muteHttpExceptions: true,
-  });
 }

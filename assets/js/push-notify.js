@@ -53,8 +53,11 @@ async function enablePush() {
 }
 
 /* ---- Token refresh listener ---- */
+// NOTE: messaging.onTokenRefresh() Firebase v9+ mein remove ho gaya.
+// Ab har 24 ghante getToken() call karo — same token milega agar valid hai,
+// naya token agar Firebase ne rotate kar diya.
 function setupTokenRefresh(messaging, swReg) {
-  messaging.onTokenRefresh(async () => {
+  setInterval(async () => {
     try {
       const newToken = await messaging.getToken({
         vapidKey: VAPID_KEY,
@@ -62,12 +65,12 @@ function setupTokenRefresh(messaging, swReg) {
       });
       if (newToken) {
         await saveFCMToken(newToken);
-        console.log('FCM token refreshed.');
+        console.log('[FCM] Token refreshed.');
       }
     } catch (err) {
-      console.warn('FCM token refresh fail hua:', err);
+      console.warn('[FCM] Token refresh check fail:', err);
     }
-  });
+  }, 24 * 60 * 60 * 1000); // har 24 ghante
 }
 
 /* ---- Foreground handler ────────────────────────────────

@@ -56,7 +56,7 @@ self.addEventListener('message', (event) => {
 });
 
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v21';
+const CACHE_NAME = 'get-gorgeous-v22';
 
 const APP_SHELL = [
   './index.html',
@@ -132,11 +132,13 @@ self.addEventListener('activate', (event) => {
         Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
       ),
       self.clients.claim(),
-    ]).then(() => {
-      self.clients.matchAll({ type: 'window' }).then((clients) => {
-        clients.forEach((client) => client.postMessage({ type: 'SW_UPDATED' }));
-      });
-    })
+    ])
+    // NOTE: SW_UPDATED broadcast hataya.
+    // Pehle ye activate pe hamesha fire hota tha — real update ho ya fresh install.
+    // Update button dabaao → SW unregister → fresh install → activate fire →
+    // banner phir se aa jaata tha bina kisi update ke.
+    // Ab shell.js ka updatefound path handle karta hai — sirf tab banner
+    // dikhega jab ek naya SW kisi purane SW ko actually replace kare.
   );
 });
 
