@@ -27,24 +27,25 @@
       </div>
 
       <div class="launcher-grid">
-        <a class="launcher-tile" href="dashboard.html"><span class="icon">⌂</span><span class="label">Dashboard</span></a>
+        <a class="launcher-tile" href="dashboard.html" data-owner-only><span class="icon">⌂</span><span class="label">Dashboard</span></a>
         <a class="launcher-tile" href="customers.html"><span class="icon">☺</span><span class="label">Customers</span></a>
         <a class="launcher-tile" href="billing.html"><span class="icon">₹</span><span class="label">Billing</span></a>
         <a class="launcher-tile" href="inventory.html"><span class="icon">▤</span><span class="label">Stock</span></a>
         <a class="launcher-tile" href="appointments.html"><span class="icon">◷</span><span class="label">Bookings</span></a>
-        <a class="launcher-tile" href="expenses.html"><span class="icon">⛁</span><span class="label">Expenses</span></a>
+        <a class="launcher-tile" href="expenses.html" data-owner-only><span class="icon">⛁</span><span class="label">Expenses</span></a>
         <a class="launcher-tile" href="staff.html"><span class="icon">⚇</span><span class="label">Staff</span></a>
         <a class="launcher-tile attendance-tile" href="attendance.html"><span class="icon">✓</span><span class="label">Attendance</span></a>
-        <a class="launcher-tile" href="marketing.html"><span class="icon">✉</span><span class="label">Marketing</span></a>
+        <a class="launcher-tile" href="marketing.html" data-owner-only><span class="icon">✉</span><span class="label">Marketing</span></a>
         <a class="launcher-tile" href="whatsapp-queue.html"><span class="icon">📨</span><span class="label">WhatsApp Queue</span></a>
-        <a class="launcher-tile" href="reports.html"><span class="icon">◫</span><span class="label">Reports</span></a>
-        <a class="launcher-tile" href="settings.html"><span class="icon">⚙</span><span class="label">Settings</span></a>
+        <a class="launcher-tile" href="reports.html" data-owner-only><span class="icon">◫</span><span class="label">Reports</span></a>
+        <a class="launcher-tile" href="settings.html" data-owner-only><span class="icon">⚙</span><span class="label">Settings</span></a>
       </div>
     </main>
   </div>
 
   <script src="assets/js/db.js"></script>
-  <script src="assets/js/device-id.js"></script>
+  <script src="assets/js/session.js"></script>
+  <script>requireLogin(); applyRoleUI();</script>
   <script src="assets/js/shell.js"></script>
   <script src="assets/js/app-config.js"></script>
   <script src="assets/js/sync.js"></script>

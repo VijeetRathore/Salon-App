@@ -23,14 +23,12 @@
 const SYNCABLE_STORES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff',
-  'attendance', 'pendingMessages', 'deviceTokens',
-];
+  'attendance', 'pendingMessages'];
 
 const PULL_STORES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff',
-  'attendance', 'pendingMessages', 'deviceTokens',
-];
+  'attendance', 'pendingMessages'];
 
 // In SABHI stores mein Sheet se delete hone pe local se bhi hatao.
 // GAS pullSince mein bhi in stores ka FULL data bhejta hai —
@@ -39,11 +37,10 @@ const PULL_STORES = [
 const DELETE_SYNC_STORES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff',
-  'attendance', 'pendingMessages', 'deviceTokens',
-];
+  'attendance', 'pendingMessages'];
 
 // Kuch stores ka keyPath 'id' nahi hota — in par special handling chahiye
-const STORE_KEYPATH = { deviceTokens: 'deviceId' };
+const STORE_KEYPATH = {};
 
 const JSON_FIELDS = {
   services: ['consumption'],

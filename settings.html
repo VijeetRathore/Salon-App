@@ -16,69 +16,111 @@
 
       <div class="grid grid-2" style="align-items:start; gap:16px;">
         <div>
+
+          <!-- Current User -->
           <div class="card mb-16">
-            <h3 class="mb-16">☁️ Cloud Sync (Google Sheets + Drive)</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Yeh sab devices ke liye ek hi jagah, code mein (<code>assets/js/app-config.js</code>) set hota hai — yahan alag se kuch daalne ki zarurat nahi.</p>
-            <div class="list-row"><span>Status</span><span id="syncStatusText" class="text-soft">Not configured</span></div>
-            <div class="list-row"><span>Last synced</span><span id="lastSyncedText" class="text-soft">Never</span></div>
-            <div class="list-row"><span>Pending records</span><strong id="pendingCount">0</strong></div>
-            <button class="btn btn-primary mt-16" style="width:100%;" onclick="runSyncNow()">Sync Now</button>
-            <div id="syncLog" class="text-soft mt-16" style="font-size:0.8rem;"></div>
+            <h3 class="mb-16">👤 Logged In As</h3>
+            <div class="list-row">
+              <span>Name</span>
+              <strong id="currentUserName">—</strong>
+            </div>
+            <div class="list-row">
+              <span>Role</span>
+              <span id="currentUserRole" class="text-soft">—</span>
+            </div>
+            <button class="btn btn-secondary mt-16" style="width:100%;" onclick="doLogout()">
+              Logout
+            </button>
           </div>
 
+          <!-- Push Notifications -->
+          <div class="card mb-16">
+            <h3 class="mb-16">🔔 Push Notifications</h3>
+            <p class="text-soft mb-16" style="font-size:0.85rem;">
+              Naya bill bante hi is device pe notification aayega — app band ho tab bhi.
+            </p>
+            <div class="list-row">
+              <span>Status</span>
+              <span id="pushStatus" class="text-soft">—</span>
+            </div>
+            <button class="btn btn-secondary mt-16" onclick="enablePush()">
+              Enable Push Notifications
+            </button>
+          </div>
+
+          <!-- Cloud Sync -->
           <div class="card">
-            <h3 class="mb-16">🔔 Appointment Reminders</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Shows a notification ~30 min before an appointment, while the app is open on this tablet.</p>
-            <div class="list-row"><span>Status</span><span id="notifStatus" class="text-soft">—</span></div>
-            <button class="btn btn-secondary" onclick="enableReminders()">Enable Reminders</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="card mb-16">
-            <h3 class="mb-16">💾 Local Backup</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Extra safety net beyond cloud sync — download all data as a JSON file, or restore from one.</p>
-            <div class="flex gap-8 mb-16">
-              <button class="btn btn-secondary" onclick="exportBackup()">Download Backup (JSON)</button>
-              <label class="btn btn-secondary" style="margin:0;">Restore from File<input type="file" accept=".json" id="restoreFile" style="display:none;"></label>
+            <h3 class="mb-16">☁️ Cloud Sync</h3>
+            <div class="list-row">
+              <span>Status</span>
+              <span id="syncStatusText" class="text-soft">—</span>
+            </div>
+            <div class="list-row">
+              <span>Last synced</span>
+              <span id="lastSyncedText" class="text-soft">Never</span>
+            </div>
+            <div class="list-row">
+              <span>Pending</span>
+              <strong id="pendingCount">0</strong>
             </div>
           </div>
 
-          <div class="card mb-16">
-            <h3 class="mb-16">☁️ Restore from Cloud</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Pull all data from Google Sheets back into this tablet (use only if local data was lost/reset).</p>
-            <button class="btn btn-secondary" onclick="restoreFromCloud()">Restore from Cloud</button>
+        </div>
+
+        <div>
+
+          <!-- User Management (owner only) -->
+          <div class="card mb-16" data-owner-only>
+            <h3 class="mb-16">👥 Users</h3>
+            <div id="userList">
+              <div class="text-soft" style="font-size:0.85rem;">Loading…</div>
+            </div>
+
+            <!-- Add User Form -->
+            <div style="margin-top:20px; border-top:1px solid var(--line,#EBE1DD); padding-top:16px;">
+              <p style="font-weight:600; margin:0 0 12px;">+ New User</p>
+              <div class="field">
+                <label>Name</label>
+                <input type="text" id="newUserName" placeholder="Staff name">
+              </div>
+              <div class="field">
+                <label>4-digit PIN</label>
+                <input type="password" id="newUserPin" inputmode="numeric" maxlength="4" placeholder="••••">
+              </div>
+              <div class="field">
+                <label>Role</label>
+                <select id="newUserRole">
+                  <option value="staff">Staff</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" style="width:100%;" onclick="addUser()">
+                Add User
+              </button>
+            </div>
           </div>
 
-          <div class="card mb-16">
-            <h3 class="mb-16">🔒 Change PIN</h3>
-            <div class="field"><label>New PIN</label><input type="password" id="newPin" inputmode="numeric" maxlength="6"></div>
-            <button class="btn btn-secondary" onclick="changePin()">Update PIN</button>
+          <!-- Export (owner only) -->
+          <div class="card" data-owner-only>
+            <h3 class="mb-16">💾 Export Data</h3>
+            <p class="text-soft mb-16" style="font-size:0.85rem;">
+              Poora data JSON file mein download karo — emergency backup ke liye.
+            </p>
+            <button class="btn btn-secondary" style="width:100%;" onclick="exportBackup()">
+              Download Backup (JSON)
+            </button>
           </div>
 
-          <div class="card mb-16">
-            <h3 class="mb-16">📱 Devices &amp; Master Access</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Sirf "Master" device Dashboard/Reports/Settings khol sakte hai, aur WhatsApp Queue se Send kar sakte hai. Is device ki ID: <strong id="myDeviceId"></strong></p>
-            <div id="deviceList"></div>
-          </div>
-
-          <div class="card">
-            <h3 class="mb-16">🔔 Push Notifications (Master Device)</h3>
-            <p class="text-soft mb-16" style="font-size:0.85rem;">Naya bill queue mein aate hi is device pe notification aayega — app band ho tab bhi.</p>
-            <div class="list-row"><span>Status</span><span id="pushStatus" class="text-soft">—</span></div>
-            <button class="btn btn-secondary" onclick="enablePush()">Enable Push Notifications</button>
-          </div>
         </div>
       </div>
     </main>
   </div>
 
   <script src="assets/js/db.js"></script>
-  <script src="assets/js/device-id.js"></script>
-  <script src="assets/js/device-guard.js"></script>
-  <script src="assets/js/pin-guard.js"></script>
-  <script src="assets/js/shell.js"></script>
   <script src="assets/js/app-config.js"></script>
+  <script src="assets/js/session.js"></script>
+  <script>requireLogin(); enforceAccess('settings'); applyRoleUI();</script>
+  <script src="assets/js/shell.js"></script>
   <script src="assets/js/sync.js"></script>
   <script src="assets/js/reminders.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>

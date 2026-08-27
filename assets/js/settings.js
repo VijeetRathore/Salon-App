@@ -1,171 +1,139 @@
 /* ============================================
-   settings.js — Settings page (Phase 4 wrap-up)
+   settings.js — Settings page (PIN system)
    ============================================ */
 
 renderShell('settings.html', 'Settings');
 
-const BACKUP_STORES = [
-  'customers', 'appointments', 'services', 'bills', 'products',
-  'purchases', 'stockTransactions', 'expenses', 'photos', 'staff', 'attendance', 'deviceTokens',
-];
-
 async function init() {
-  document.getElementById('myDeviceId').textContent = window.DEVICE_ID;
-  await loadDeviceList();
+  const user = window.CURRENT_USER || getCurrentUser();
+
+  // Logged-in user ka naam dikhao
+  document.getElementById('currentUserName').textContent = user ? user.name : '—';
+  document.getElementById('currentUserRole').textContent = user ? user.role : '—';
+
+  // Push status
   await refreshPushStatus();
-  await autoPromptPushIfMaster();
 
-  await refreshSyncStatus();
-  await refreshNotifStatus();
-
-  document.getElementById('restoreFile').addEventListener('change', (e) => {
-    if (e.target.files[0]) restoreFromFile(e.target.files[0]);
-  });
+  // Owner-only sections
+  if (user && user.role === 'owner') {
+    await loadUserList();
+  }
 }
 
-async function loadDeviceList() {
-  const devices = await DB.getAll('deviceTokens');
-  const el = document.getElementById('deviceList');
-  if (!devices.length) {
-    el.innerHTML = '<div class="text-soft" style="font-size:0.85rem;">Koi device abhi tak register nahi hua.</div>';
-    return;
-  }
-  el.innerHTML = devices
-    .sort((a, b) => new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0))
-    .map(d => `
-      <div class="list-row" style="flex-wrap:wrap; gap:8px;">
-        <div>
-          <div style="font-weight:600;">${d.label || d.deviceId} ${d.deviceId === window.DEVICE_ID ? '<span class="badge">this device</span>' : ''}</div>
-          <div class="text-soft" style="font-size:0.75rem;">${d.deviceId} · last seen ${d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</div>
+/* ---------- User Management (owner only) ---------- */
+
+async function loadUserList() {
+  const el = document.getElementById('userList');
+  if (!el) return;
+  el.innerHTML = '<div class="text-soft" style="font-size:0.85rem;">Loading…</div>';
+
+  try {
+    const res  = await fetch(`${GAS_URL}?action=getUsers&token=${encodeURIComponent(GAS_TOKEN)}`);
+    const json = await res.json();
+    if (!json.ok) { el.innerHTML = `<div class="text-soft">${json.error}</div>`; return; }
+
+    const users = json.users || [];
+    if (!users.length) {
+      el.innerHTML = '<div class="text-soft" style="font-size:0.85rem;">Koi user nahi mila — GAS Sheet mein users tab banao.</div>';
+      return;
+    }
+
+    el.innerHTML = users.map(u => `
+      <div class="list-row" style="flex-wrap:wrap; gap:8px; align-items:center;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600;">${u.name} ${u.userId === (window.CURRENT_USER || {}).userId ? '<span class="badge">you</span>' : ''}</div>
+          <div class="text-soft" style="font-size:0.75rem;">${u.role} · ${u.isActive ? '✅ Active' : '❌ Inactive'}</div>
         </div>
-        <button class="btn ${d.isMaster ? 'btn-primary' : 'btn-secondary'}" onclick="toggleMaster('${d.deviceId}', ${!d.isMaster})">${d.isMaster ? '★ Master' : 'Make Master'}</button>
+        <button class="btn ${u.isActive ? 'btn-secondary' : 'btn-primary'}"
+          onclick="toggleUserActive('${u.userId}', ${!u.isActive})">
+          ${u.isActive ? 'Deactivate' : 'Activate'}
+        </button>
       </div>
     `).join('');
-}
-
-async function toggleMaster(deviceId, makeMaster) {
-  await DB.update('deviceTokens', deviceId, { isMaster: makeMaster });
-  Sync.requestSync();
-  await loadDeviceList();
-}
-
-async function autoPromptPushIfMaster() {
-  if (typeof Notification === 'undefined') return;
-  const amMaster = await isMasterDevice();
-  const me = await DB.get('deviceTokens', window.DEVICE_ID);
-  const alreadyEnabled = me && me.fcmToken;
-  if (amMaster && !alreadyEnabled && Notification.permission === 'default') {
-    // Auto-trigger — the browser's own permission dialog still needs one tap
-    // (no website can skip that), but at least the user doesn't have to hunt
-    // for a button first.
-    await enablePush();
+  } catch (err) {
+    el.innerHTML = `<div class="text-soft">Load fail: ${err.message}</div>`;
   }
 }
 
-async function refreshSyncStatus() {
-  const { configured } = await Sync.getSyncConfig();
-  document.getElementById('syncStatusText').textContent = configured ? 'Configured' : 'Not configured';
-
-  const lastSynced = await DB.getSetting('lastSyncedAt', null);
-  document.getElementById('lastSyncedText').textContent = lastSynced ? fmtDateTime(lastSynced) : 'Never';
-
-  const pending = await Sync.getPendingCount();
-  document.getElementById('pendingCount').textContent = pending;
-}
-
-async function runSyncNow() {
-  const logEl = document.getElementById('syncLog');
-  logEl.textContent = 'Syncing…';
-  const result = await Sync.now((progress) => {
-    logEl.textContent = `Synced ${progress.store}: ${progress.synced} record(s)…`;
-  });
-  if (result.ok) {
-    logEl.textContent = `✓ Sync complete — ${result.results.reduce((s, r) => s + r.synced, 0)} records pushed.`;
-  } else {
-    logEl.textContent = `✗ ${result.error}`;
+async function toggleUserActive(userId, makeActive) {
+  try {
+    const res  = await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({ token: GAS_TOKEN, action: 'updateUser', userId, isActive: makeActive }),
+    });
+    const json = await res.json();
+    if (json.ok) await loadUserList();
+    else alert('Error: ' + json.error);
+  } catch (err) {
+    alert('Failed: ' + err.message);
   }
-  await refreshSyncStatus();
 }
 
-/* ---------- Notifications ---------- */
+async function addUser() {
+  const name = document.getElementById('newUserName').value.trim();
+  const pin  = document.getElementById('newUserPin').value.trim();
+  const role = document.getElementById('newUserRole').value;
 
-async function refreshNotifStatus() {
-  const el = document.getElementById('notifStatus');
-  if (typeof Notification === 'undefined') { el.textContent = 'Not supported on this device'; return; }
-  el.textContent = Notification.permission === 'granted' ? 'Enabled'
-    : Notification.permission === 'denied' ? 'Blocked (check browser settings)'
-    : 'Not enabled';
+  if (!name) { alert('Name daalo.'); return; }
+  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { alert('4 digit PIN daalo.'); return; }
+
+  try {
+    const res  = await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({ token: GAS_TOKEN, action: 'addUser', name, pin, role }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      document.getElementById('newUserName').value = '';
+      document.getElementById('newUserPin').value  = '';
+      alert(`${name} add ho gaye!`);
+      await loadUserList();
+    } else {
+      alert('Error: ' + json.error);
+    }
+  } catch (err) {
+    alert('Failed: ' + err.message);
+  }
 }
 
-async function enableReminders() {
-  const result = await Reminders.requestPermission();
-  await refreshNotifStatus();
-  if (result === 'granted') alert('Reminders enabled — you\'ll get a notification ~30 min before each booking, while the app is open.');
+/* ---------- Push Notifications ---------- */
+
+async function refreshPushStatus() {
+  const el = document.getElementById('pushStatus');
+  if (!el) return;
+  if (typeof Notification === 'undefined') { el.textContent = 'Not supported'; return; }
+  if (Notification.permission === 'denied') { el.textContent = 'Blocked — browser settings se allow karo'; return; }
+  const token = localStorage.getItem('gg_fcmToken');
+  el.textContent = (Notification.permission === 'granted' && token) ? 'Enabled ✅' : 'Not enabled yet';
 }
 
-/* ---------- Local backup ---------- */
+/* ---------- Data Export (owner only) ---------- */
+
+const EXPORT_STORES = [
+  'customers', 'appointments', 'services', 'bills', 'products',
+  'purchases', 'stockTransactions', 'expenses', 'staff', 'attendance',
+];
 
 async function exportBackup() {
   const data = {};
-  for (const store of BACKUP_STORES) {
+  for (const store of EXPORT_STORES) {
     data[store] = await DB.getAll(store);
   }
   data._exportedAt = new Date().toISOString();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
   a.download = `get-gorgeous-backup_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-async function restoreFromFile(file) {
-  const text = await file.text();
-  let data;
-  try { data = JSON.parse(text); } catch { return alert('Invalid backup file.'); }
+/* ---------- Logout ---------- */
 
-  if (!confirm('This will add any records from the backup that are missing locally. Continue?')) return;
-
-  let restoredCount = 0;
-  for (const store of BACKUP_STORES) {
-    const records = data[store] || [];
-    for (const record of records) {
-      if (!record.id) continue;
-      const existing = await DB.get(store, record.id);
-      if (!existing) {
-        await DB.add(store, { ...record, synced: false });
-        restoredCount++;
-      }
-    }
-  }
-  alert(`Restore complete — ${restoredCount} record(s) added.`);
-}
-
-async function restoreFromCloud() {
-  if (!confirm('Pull all data from Google Sheets into this tablet? Existing local records will not be overwritten.')) return;
-  const result = await Sync.restoreFromCloud();
-  if (result.ok) alert('Restore from cloud complete.');
-  else alert('Restore failed: ' + result.error);
-}
-
-/* ---------- PIN ---------- */
-
-async function simpleHash(str) {
-  const enc = new TextEncoder().encode(str);
-  const buf = await crypto.subtle.digest('SHA-256', enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function changePin() {
-  const val = document.getElementById('newPin').value.trim();
-  if (val.length < 4) return alert('PIN should be at least 4 digits.');
-  await DB.setSetting('pinHash', await simpleHash(val));
-  document.getElementById('newPin').value = '';
-  alert('PIN updated.');
+async function doLogout() {
+  if (!confirm('Logout karna chahte ho?')) return;
+  await Session.logout();
 }
 
 init();
-
-// Jab bhi pull complete ho (kisi bhi page se) → device list refresh karo
-window.addEventListener('ggDataUpdated', () => loadDeviceList());

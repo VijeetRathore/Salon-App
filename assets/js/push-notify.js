@@ -107,14 +107,22 @@ function setupForegroundHandler(messaging) {
 
 /* ---- Token DB mein save + sync ---- */
 async function saveFCMToken(token) {
-  const existing = await DB.get('deviceTokens', window.DEVICE_ID);
-  if (existing) {
-    await DB.update('deviceTokens', window.DEVICE_ID, { fcmToken: token });
-  } else {
-    console.warn('Device token record nahi mila — device setup check karo.');
-    return;
+  const user = window.CURRENT_USER || getCurrentUser();
+  if (!user) { console.warn('[FCM] Not logged in — token save skip.'); return; }
+
+  // localStorage mein save (logout ke waqt remove karne ke liye)
+  localStorage.setItem('gg_fcmToken', token);
+
+  // GAS users table mein save
+  try {
+    await fetch(
+      `${GAS_URL}?action=saveFcmToken&token=${encodeURIComponent(GAS_TOKEN)}` +
+      `&userId=${encodeURIComponent(user.userId)}&fcmToken=${encodeURIComponent(token)}`
+    );
+    console.log('[FCM] Token saved to GAS.');
+  } catch (e) {
+    console.warn('[FCM] Token save to GAS failed:', e);
   }
-  Sync.requestSync();
 }
 
 /* ---- Push status UI ---- */
@@ -122,7 +130,7 @@ async function refreshPushStatus() {
   const el = document.getElementById('pushStatus');
   if (!el) return;
   if (typeof Notification === 'undefined') { el.textContent = 'Not supported'; return; }
-  if (Notification.permission === 'denied') { el.textContent = 'Blocked in browser settings'; return; }
-  const me = await DB.get('deviceTokens', window.DEVICE_ID);
-  el.textContent = (me && me.fcmToken) ? 'Enabled ✅' : 'Not enabled yet';
+  if (Notification.permission === 'denied')  { el.textContent = 'Blocked — browser settings se allow karo'; return; }
+  const token = localStorage.getItem('gg_fcmToken');
+  el.textContent = (Notification.permission === 'granted' && token) ? 'Enabled ✅' : 'Not enabled yet';
 }
