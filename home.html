@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Get Gorgeous</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/home.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Push banner — login ke baad dikhta hai agar permission nahi mili -->
+    <div id="pushBanner" style="display:none; background:#fff8e1; border-left:4px solid #ffc107;
+      padding:10px 16px; margin:8px 12px 0; border-radius:6px;
+      font-size:0.88rem; align-items:center; gap:10px;">
+      🔔 Notifications enable karo — bill alerts milenge.
+      <button onclick="enablePush()" style="margin-left:8px; padding:5px 12px;
+        background:#A6314F; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem;">
+        Enable
+      </button>
+    </div>
+    <main class="main" style="padding-top:28px;">
+      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:24px;">
+        <div>
+          <div class="eyebrow">Get Gorgeous</div>
+          <h1>Welcome</h1>
+        </div>
+        <div class="flex gap-8" style="align-items:center;">
+          <button onclick="forceAppUpdate()" id="hardRefreshBtn" title="Force update app" style="
+            background:none; border:1px solid var(--line,#EBE1DD); border-radius:8px;
+            padding:5px 9px; font-size:0.8rem; cursor:pointer; color:var(--ink-soft);
+          ">🔄 Update</button>
+          <span class="sync-pill" id="syncPill"><span class="dot"></span> <span id="syncText">…</span></span>
+        </div>
+      </div>
+
+      <div class="launcher-grid">
+        <a class="launcher-tile" href="dashboard.html" data-owner-only><span class="icon">⌂</span><span class="label">Dashboard</span></a>
+        <a class="launcher-tile" href="customers.html"><span class="icon">☺</span><span class="label">Customers</span></a>
+        <a class="launcher-tile" href="billing.html"><span class="icon">₹</span><span class="label">Billing</span></a>
+        <a class="launcher-tile" href="inventory.html"><span class="icon">▤</span><span class="label">Stock</span></a>
+        <a class="launcher-tile" href="appointments.html"><span class="icon">◷</span><span class="label">Bookings</span></a>
+        <a class="launcher-tile" href="expenses.html" data-owner-only><span class="icon">⛁</span><span class="label">Expenses</span></a>
+        <a class="launcher-tile" href="staff.html"><span class="icon">⚇</span><span class="label">Staff</span></a>
+        <a class="launcher-tile attendance-tile" href="attendance.html"><span class="icon">✓</span><span class="label">Attendance</span></a>
+        <a class="launcher-tile" href="marketing.html" data-owner-only><span class="icon">✉</span><span class="label">Marketing</span></a>
+        <a class="launcher-tile" href="whatsapp-queue.html"><span class="icon">📨</span><span class="label">WhatsApp Queue</span></a>
+        <a class="launcher-tile" href="reports.html" data-owner-only><span class="icon">◫</span><span class="label">Reports</span></a>
+        <a class="launcher-tile" href="settings.html" data-owner-only><span class="icon">⚙</span><span class="label">Settings</span></a>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/db.js"></script>
+  <script src="assets/js/session.js"></script>
+  <script>requireLogin(); applyRoleUI();</script>
+  <script src="assets/js/shell.js"></script>
+  <script src="assets/js/app-config.js"></script>
+  <script src="assets/js/sync.js"></script>
+  <script src="assets/js/reminders.js"></script>
+  <script src="assets/js/attendance.js"></script>
+  <script>
+    updateSyncPill();
+    // Show SW update banner on home page too
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'SW_UPDATED') showUpdateBanner();
+      });
+    }
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
+  <script src="assets/js/firebase-config.js"></script>
+  <script src="assets/js/push-notify.js"></script>
+  <script>
+    // Page load pe: agar permission granted → silently enable
+    // agar nahi → banner show karo
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof enablePushSilently === 'function') {
+        enablePushSilently(window.CURRENT_USER);
+      }
+    });
+  </script>
+</body>
+</html>
