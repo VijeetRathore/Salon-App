@@ -32,7 +32,12 @@ async function init() {
     : '<option value="">No services set up yet — add in Inventory</option>';
 
   document.getElementById('productSelect').innerHTML = products.length
-    ? products.map(p => `<option value="${p.id}">${p.name} — ${fmtCurrency(p.sellingCost)} (${p.currentStock ?? 0} left)</option>`).join('')
+    ? products.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(p => {
+        const packW = Number(p.packWeight)||1;
+        const stock = Number(p.currentStock)||0;
+        const sd = packW>1 ? `${(stock/packW).toFixed(1)} packs` : `${stock} ${p.packUnit||'pc'}`;
+        return `<option value="${p.id}">${p.name} — ${fmtCurrency(p.sellingCost)} (${sd})</option>`;
+      }).join('')
     : '<option value="">No products yet — add in Inventory</option>';
 
   document.getElementById('billCustomer').addEventListener('change', renderSummary);
@@ -129,23 +134,39 @@ async function saveBill() {
     createdByUserId: (window.CURRENT_USER || {}).userId || null, // sent confirmation ke liye
   });
 
-  // Deduct stock: direct product sales
+  // Deduct stock: direct product sales (item.qty = packs; stock in base units)
   for (const item of lineItems.filter(i => i.type === 'product')) {
     const prod = products.find(p => p.id === item.refId);
-    const newStock = (prod.currentStock || 0) - item.qty;
+    if (!prod) continue;
+    const packW        = Number(prod.packWeight) || 1;
+    const deductUnits  = item.qty * packW;          // e.g. 2 packs × 1000ml = 2000ml
+    const newStock     = (Number(prod.currentStock) || 0) - deductUnits;
     await DB.update('products', item.refId, { currentStock: newStock });
-    await DB.add('stockTransactions', { productId: item.refId, type: 'consumption', qty: item.qty, refBillId: bill.id, note: 'Product sale' });
+    await DB.add('stockTransactions', {
+      productId:  item.refId,
+      type:       'sale',
+      qtyInUnits: deductUnits,
+      packs:      item.qty,
+      packWeight: packW,
+      packUnit:   prod.packUnit || 'pc',
+      refBillId:  bill.id,
+      note:       `Product sale: ${item.qty} pack(s)`,
+    });
   }
 
-  // Deduct stock: service product consumption
+  // Deduct stock: service product consumption (c.qty in base units ml/g/pc)
   for (const item of lineItems.filter(i => i.type === 'service')) {
     for (const c of item.consumption || []) {
       const prod = products.find(p => p.id === c.productId);
       if (!prod) continue;
-      const usedQty = c.qty * item.qty;
-      const newStock = (prod.currentStock || 0) - usedQty;
+      const usedUnits = c.qty * item.qty;
+      const newStock  = (Number(prod.currentStock) || 0) - usedUnits;
       await DB.update('products', c.productId, { currentStock: newStock });
-      await DB.add('stockTransactions', { productId: c.productId, type: 'consumption', qty: usedQty, refBillId: bill.id, note: `Used in ${item.name}` });
+      await DB.add('stockTransactions', {
+        productId: c.productId, type: 'consumption',
+        qtyInUnits: usedUnits, packUnit: prod.packUnit || 'pc',
+        refBillId: bill.id, note: `Used in ${item.name}: ${usedUnits}${prod.packUnit||''}`,
+      });
     }
   }
 
@@ -213,7 +234,11 @@ document.getElementById('quickProductForm').addEventListener('submit', async () 
 
   const newProduct = await DB.add('products', { name, sellingCost, currentStock, unit, purchaseCost: 0, lowStockThreshold: 5 });
   products.push(newProduct);
-  document.getElementById('productSelect').innerHTML = products.map(p => `<option value="${p.id}">${p.name} — ${fmtCurrency(p.sellingCost)} (${p.currentStock ?? 0} left)</option>`).join('');
+  document.getElementById('productSelect').innerHTML = products.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(p => {
+    const packW = Number(p.packWeight)||1; const stock = Number(p.currentStock)||0;
+    const sd = packW>1 ? `${(stock/packW).toFixed(1)} packs` : `${stock} ${p.packUnit||'pc'}`;
+    return `<option value="${p.id}">${p.name} — ${fmtCurrency(p.sellingCost)} (${sd})</option>`;
+  }).join('');
   document.getElementById('productSelect').value = newProduct.id;
 
   document.getElementById('quickProductForm').reset();
