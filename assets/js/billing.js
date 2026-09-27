@@ -27,9 +27,8 @@ async function init() {
     staffList.sort((a, b) => a.name.localeCompare(b.name))
       .map(s => `<option value="${s.id}">${s.name}</option>`).join('');
 
-  document.getElementById('serviceSelect').innerHTML = services.length
-    ? services.map(s => `<option value="${s.id}">${s.name} — ${fmtCurrency(s.price)}</option>`).join('')
-    : '<option value="">No services set up yet — add in Inventory</option>';
+  // serviceSelect replaced by phonebook search — no init needed
+  document.getElementById('serviceSearchInput').value = '';
 
   document.getElementById('productSelect').innerHTML = products.length
     ? products.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(p => {
@@ -45,22 +44,25 @@ async function init() {
 }
 
 function addServiceLine() {
-  const id = document.getElementById('serviceSelect').value;
+  const id = document.getElementById('serviceSelectHidden').value;
   const svc = services.find(s => s.id === id);
-  if (!svc) return;
+  if (!svc) { alert('Pehle service select karo.'); return; }
   lineItems.push({ type: 'service', refId: svc.id, name: svc.name, qty: 1, price: svc.price, consumption: svc.consumption || [] });
+  clearServiceSelection();
   renderItems();
 }
 
 function addProductLine() {
-  const id = document.getElementById('productSelect').value;
+  const id = document.getElementById('productSelectHidden').value;
   const qty = Number(document.getElementById('productQty').value) || 1;
   const prod = products.find(p => p.id === id);
-  if (!prod) return;
+  if (!prod) { alert('Pehle product select karo.'); return; }
   if (qty > (prod.currentStock || 0)) {
     if (!confirm(`Only ${prod.currentStock || 0} ${prod.unit || ''} in stock. Add anyway?`)) return;
   }
   lineItems.push({ type: 'product', refId: prod.id, name: prod.name, qty, price: prod.sellingCost });
+  clearProductSelection();
+  document.getElementById('productQty').value = 1;
   renderItems();
 }
 
@@ -217,8 +219,8 @@ document.getElementById('quickServiceForm').addEventListener('submit', async () 
 
   const newService = await DB.add('services', { name, price, durationMin: 0, consumption: [] });
   services.push(newService);
-  document.getElementById('serviceSelect').innerHTML = services.map(s => `<option value="${s.id}">${s.name} — ${fmtCurrency(s.price)}</option>`).join('');
-  document.getElementById('serviceSelect').value = newService.id;
+  // Auto-select newly added service in phonebook search
+  selectService(newService.id);
 
   document.getElementById('quickServiceForm').reset();
   quickServiceModal.close();
@@ -234,12 +236,8 @@ document.getElementById('quickProductForm').addEventListener('submit', async () 
 
   const newProduct = await DB.add('products', { name, sellingCost, currentStock, unit, purchaseCost: 0, lowStockThreshold: 5 });
   products.push(newProduct);
-  document.getElementById('productSelect').innerHTML = products.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(p => {
-    const packW = Number(p.packWeight)||1; const stock = Number(p.currentStock)||0;
-    const sd = packW>1 ? `${(stock/packW).toFixed(1)} packs` : `${stock} ${p.packUnit||'pc'}`;
-    return `<option value="${p.id}">${p.name} — ${fmtCurrency(p.sellingCost)} (${sd})</option>`;
-  }).join('');
-  document.getElementById('productSelect').value = newProduct.id;
+  // Auto-select newly added product in phonebook search
+  selectBillProduct(newProduct.id);
 
   document.getElementById('quickProductForm').reset();
   quickProductModal.close();
@@ -442,4 +440,135 @@ document.addEventListener('click', (e) => {
   if (input && dropdown && !input.contains(e.target) && !dropdown.contains(e.target)) {
     dropdown.style.display = 'none';
   }
+
+  // Service dropdown bahar click → band
+  const svcInput    = document.getElementById('serviceSearchInput');
+  const svcDropdown = document.getElementById('serviceDropdown');
+  if (svcInput && svcDropdown && !svcInput.contains(e.target) && !svcDropdown.contains(e.target)) {
+    svcDropdown.style.display = 'none';
+  }
+
+  // Product dropdown bahar click → band
+  const prodInput    = document.getElementById('productSearchInput');
+  const prodDropdown = document.getElementById('productDropdown');
+  if (prodInput && prodDropdown && !prodInput.contains(e.target) && !prodDropdown.contains(e.target)) {
+    prodDropdown.style.display = 'none';
+  }
 });
+
+/* ============================================
+   PHONEBOOK-STYLE SERVICE SEARCH (billing)
+   ============================================ */
+
+function onServiceSearch(q) {
+  q = q.trim();
+  const dropdown = document.getElementById('serviceDropdown');
+  if (!q) { dropdown.style.display = 'none'; return; }
+
+  const ql = q.toLowerCase();
+  const matches = services
+    .filter(s => (s.name || '').toLowerCase().includes(ql))
+    .sort((a, b) => {
+      const aStart = (a.name || '').toLowerCase().startsWith(ql) ? 0 : 1;
+      const bStart = (b.name || '').toLowerCase().startsWith(ql) ? 0 : 1;
+      return aStart - bStart || (a.name || '').localeCompare(b.name || '');
+    })
+    .slice(0, 8);
+
+  if (!matches.length) {
+    dropdown.innerHTML = `<div style="padding:12px 14px; color:var(--ink-soft); font-size:0.88rem;">Koi service nahi mili</div>`;
+  } else {
+    dropdown.innerHTML = matches.map(s => `
+      <div onclick="selectService('${s.id}')"
+        style="padding:12px 14px; cursor:pointer; border-bottom:1px solid var(--line,#EBE1DD);">
+        <div style="font-weight:600;">${highlight(s.name, ql)}</div>
+        <div class="text-soft" style="font-size:0.82rem;">${fmtCurrency(s.price)}</div>
+      </div>
+    `).join('');
+  }
+  dropdown.style.display = 'block';
+}
+
+function selectService(id) {
+  const s = services.find(x => x.id === id);
+  if (!s) return;
+
+  document.getElementById('serviceSelectHidden').value = id;
+  document.getElementById('serviceSearchInput').style.display = 'none';
+  document.getElementById('serviceDropdown').style.display    = 'none';
+
+  const pill = document.getElementById('selectedServicePill');
+  pill.style.display = 'flex';
+  document.getElementById('selectedServiceName').textContent  = s.name;
+  document.getElementById('selectedServicePrice').textContent = fmtCurrency(s.price);
+}
+
+function clearServiceSelection() {
+  document.getElementById('serviceSelectHidden').value          = '';
+  document.getElementById('selectedServicePill').style.display  = 'none';
+  document.getElementById('serviceSearchInput').style.display   = '';
+  document.getElementById('serviceSearchInput').value           = '';
+  document.getElementById('serviceDropdown').style.display      = 'none';
+}
+
+/* ============================================
+   PHONEBOOK-STYLE PRODUCT SEARCH (billing)
+   ============================================ */
+
+function onProductSearch(q) {
+  q = q.trim();
+  const dropdown = document.getElementById('productDropdown');
+  if (!q) { dropdown.style.display = 'none'; return; }
+
+  const ql = q.toLowerCase();
+  const matches = products
+    .filter(p => (p.name || '').toLowerCase().includes(ql))
+    .sort((a, b) => {
+      const aStart = (a.name || '').toLowerCase().startsWith(ql) ? 0 : 1;
+      const bStart = (b.name || '').toLowerCase().startsWith(ql) ? 0 : 1;
+      return aStart - bStart || (a.name || '').localeCompare(b.name || '');
+    })
+    .slice(0, 8);
+
+  if (!matches.length) {
+    dropdown.innerHTML = `<div style="padding:12px 14px; color:var(--ink-soft); font-size:0.88rem;">Koi product nahi mila</div>`;
+  } else {
+    dropdown.innerHTML = matches.map(p => {
+      const packW = Number(p.packWeight) || 1;
+      const stock = Number(p.currentStock) || 0;
+      const sd    = packW > 1 ? `${(stock/packW).toFixed(1)} packs` : `${stock} ${p.packUnit||'pc'}`;
+      return `
+        <div onclick="selectBillProduct('${p.id}')"
+          style="padding:12px 14px; cursor:pointer; border-bottom:1px solid var(--line,#EBE1DD);">
+          <div style="font-weight:600;">${highlight(p.name, ql)}</div>
+          <div class="text-soft" style="font-size:0.82rem;">${fmtCurrency(p.sellingCost)} · Stock: ${sd}</div>
+        </div>`;
+    }).join('');
+  }
+  dropdown.style.display = 'block';
+}
+
+function selectBillProduct(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+
+  document.getElementById('productSelectHidden').value = id;
+  document.getElementById('productSearchInput').style.display = 'none';
+  document.getElementById('productDropdown').style.display    = 'none';
+
+  const pill = document.getElementById('selectedProductPill');
+  pill.style.display = 'flex';
+  const packW = Number(p.packWeight) || 1;
+  const stock = Number(p.currentStock) || 0;
+  const sd    = packW > 1 ? `${(stock/packW).toFixed(1)} packs` : `${stock} ${p.packUnit||'pc'}`;
+  document.getElementById('selectedProductName').textContent  = p.name;
+  document.getElementById('selectedProductPrice').textContent = `${fmtCurrency(p.sellingCost)} · ${sd}`;
+}
+
+function clearProductSelection() {
+  document.getElementById('productSelectHidden').value          = '';
+  document.getElementById('selectedProductPill').style.display  = 'none';
+  document.getElementById('productSearchInput').style.display   = '';
+  document.getElementById('productSearchInput').value           = '';
+  document.getElementById('productDropdown').style.display      = 'none';
+}

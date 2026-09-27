@@ -48,18 +48,65 @@
           </div>
 
           <label>Add Service</label>
-          <div class="flex gap-8 mb-16">
-            <select id="serviceSelect" style="flex:1;"></select>
-            <button class="btn btn-secondary" onclick="addServiceLine()">Add</button>
-            <button class="btn btn-ghost" onclick="quickServiceModal.showModal()">+ New</button>
+          <div class="mb-16" style="position:relative;">
+            <!-- Search input + pill row -->
+            <div class="flex gap-8" style="align-items:center;">
+              <div style="flex:1; position:relative;">
+                <input type="text" id="serviceSearchInput"
+                  placeholder="Service name type karo..."
+                  autocomplete="off"
+                  oninput="onServiceSearch(this.value)"
+                  style="width:100%; box-sizing:border-box;">
+                <!-- Selected service pill -->
+                <div id="selectedServicePill" style="display:none; margin-top:6px;
+                  background:var(--surface-sunken,#F7F1EE); border-radius:8px; padding:8px 12px;
+                  align-items:center; gap:8px; font-size:0.88rem;">
+                  <span id="selectedServiceName" style="font-weight:600; flex:1;"></span>
+                  <span id="selectedServicePrice" class="text-soft"></span>
+                  <button onclick="clearServiceSelection()" style="background:none;border:none;
+                    cursor:pointer;color:var(--ink-soft);font-size:1rem;padding:0;">✕</button>
+                </div>
+                <!-- Search results dropdown -->
+                <div id="serviceDropdown" style="display:none; position:absolute; left:0; right:0;
+                  background:#fff; border:1px solid var(--line,#EBE1DD); border-radius:10px;
+                  box-shadow:0 4px 16px rgba(0,0,0,0.1); z-index:100; max-height:240px;
+                  overflow-y:auto; margin-top:2px;"></div>
+                <input type="hidden" id="serviceSelectHidden">
+              </div>
+              <button class="btn btn-secondary" onclick="addServiceLine()">Add</button>
+              <button class="btn btn-ghost" onclick="quickServiceModal.showModal()">+ New</button>
+            </div>
           </div>
 
           <label>Add Product Sale</label>
-          <div class="flex gap-8 mb-16">
-            <select id="productSelect" style="flex:1;"></select>
-            <input id="productQty" type="number" min="1" value="1" style="max-width:90px;">
-            <button class="btn btn-secondary" onclick="addProductLine()">Add</button>
-            <button class="btn btn-ghost" onclick="quickProductModal.showModal()">+ New</button>
+          <div class="mb-16" style="position:relative;">
+            <div class="flex gap-8" style="align-items:center;">
+              <div style="flex:1; position:relative;">
+                <input type="text" id="productSearchInput"
+                  placeholder="Product name type karo..."
+                  autocomplete="off"
+                  oninput="onProductSearch(this.value)"
+                  style="width:100%; box-sizing:border-box;">
+                <!-- Selected product pill -->
+                <div id="selectedProductPill" style="display:none; margin-top:6px;
+                  background:var(--surface-sunken,#F7F1EE); border-radius:8px; padding:8px 12px;
+                  align-items:center; gap:8px; font-size:0.88rem;">
+                  <span id="selectedProductName" style="font-weight:600; flex:1;"></span>
+                  <span id="selectedProductPrice" class="text-soft"></span>
+                  <button onclick="clearProductSelection()" style="background:none;border:none;
+                    cursor:pointer;color:var(--ink-soft);font-size:1rem;padding:0;">✕</button>
+                </div>
+                <!-- Search results dropdown -->
+                <div id="productDropdown" style="display:none; position:absolute; left:0; right:0;
+                  background:#fff; border:1px solid var(--line,#EBE1DD); border-radius:10px;
+                  box-shadow:0 4px 16px rgba(0,0,0,0.1); z-index:100; max-height:240px;
+                  overflow-y:auto; margin-top:2px;"></div>
+                <input type="hidden" id="productSelectHidden">
+              </div>
+              <input id="productQty" type="number" min="1" value="1" style="max-width:70px;">
+              <button class="btn btn-secondary" onclick="addProductLine()">Add</button>
+              <button class="btn btn-ghost" onclick="quickProductModal.showModal()">+ New</button>
+            </div>
           </div>
 
           <h3 class="mb-16 mt-16">Bill Items</h3>

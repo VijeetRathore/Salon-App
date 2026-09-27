@@ -536,36 +536,104 @@ function openServiceModal(s) {
 }
 
 function addConsumptionRow(productId = '', qty = '') {
-  const row  = document.createElement('div');
-  row.style.cssText = 'display:flex; gap:8px; margin-bottom:8px; align-items:center;';
+  const row = document.createElement('div');
+  row.style.cssText = 'margin-bottom:10px;';
 
-  const opts = allProducts.map(p =>
-    `<option value="${p.id}" data-unit="${p.packUnit||'pc'}"
-      ${p.id === productId ? 'selected' : ''}>${p.name}</option>`
-  ).join('');
-
-  // Get unit of pre-selected product
   const selProd = allProducts.find(p => p.id === productId);
+  const selName = selProd ? selProd.name : '';
   const unit    = selProd ? (selProd.packUnit || 'pc') : '';
 
   row.innerHTML = `
-    <select class="cons-product" style="flex:2;" onchange="updateConsUnit(this)">
-      <option value="">— Select product —</option>${opts}
-    </select>
-    <input class="cons-qty" type="number" min="0" step="any" value="${qty}"
-      placeholder="Qty" style="flex:1;">
-    <span class="cons-unit text-soft" style="min-width:28px; font-size:0.85rem;">${unit}</span>
-    <button type="button" onclick="this.closest('div').remove()"
-      style="background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:1.1rem;">✕</button>`;
+    <div style="display:flex; gap:8px; align-items:center; position:relative;">
+      <div style="flex:2; position:relative;">
+        <input type="text" class="cons-search" placeholder="Product type karo..."
+          autocomplete="off"
+          value="${selName}"
+          oninput="onConsSearch(this)"
+          style="width:100%; box-sizing:border-box; ${selName ? 'display:none;' : ''}">
+        <div class="cons-pill" style="display:${selName ? 'flex' : 'none'};
+          background:var(--surface-sunken,#F7F1EE); border-radius:8px; padding:6px 10px;
+          align-items:center; gap:6px; font-size:0.88rem;">
+          <span class="cons-pill-name" style="font-weight:600; flex:1;">${selName}</span>
+          <button type="button" onclick="clearConsRow(this)"
+            style="background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:0.95rem;padding:0;">✕</button>
+        </div>
+        <div class="cons-dropdown" style="display:none; position:absolute; left:0; right:0;
+          background:#fff; border:1px solid var(--line,#EBE1DD); border-radius:8px;
+          box-shadow:0 4px 12px rgba(0,0,0,0.1); z-index:300; max-height:180px;
+          overflow-y:auto; margin-top:2px;"></div>
+        <input type="hidden" class="cons-product" value="${productId}">
+      </div>
+      <input class="cons-qty" type="number" min="0" step="any" value="${qty}"
+        placeholder="Qty" style="flex:1;">
+      <span class="cons-unit text-soft" style="min-width:28px; font-size:0.85rem;">${unit}</span>
+      <button type="button" onclick="this.closest('div').closest('div').remove()"
+        style="background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:1.1rem;">✕</button>
+    </div>`;
 
   document.getElementById('svcConsumptionRows').appendChild(row);
 }
 
-function updateConsUnit(select) {
-  const opt  = select.options[select.selectedIndex];
-  const unit = opt ? (opt.dataset.unit || '') : '';
-  select.closest('div').querySelector('.cons-unit').textContent = unit;
+function onConsSearch(input) {
+  const q        = input.value.trim();
+  const row      = input.closest('div[style*="position:relative"]');
+  const dropdown = row.querySelector('.cons-dropdown');
+
+  if (!q) { dropdown.style.display = 'none'; return; }
+
+  const ql      = q.toLowerCase();
+  const matches = allProducts
+    .filter(p => (p.name || '').toLowerCase().includes(ql))
+    .sort((a, b) => {
+      const aS = (a.name||'').toLowerCase().startsWith(ql) ? 0 : 1;
+      const bS = (b.name||'').toLowerCase().startsWith(ql) ? 0 : 1;
+      return aS - bS || (a.name||'').localeCompare(b.name||'');
+    })
+    .slice(0, 7);
+
+  if (!matches.length) {
+    dropdown.innerHTML = `<div style="padding:10px 14px; color:var(--ink-soft); font-size:0.85rem;">Koi product nahi mila</div>`;
+  } else {
+    dropdown.innerHTML = matches.map(p => `
+      <div onclick="selectConsProduct(this, '${p.id}','${p.name.replace(/'/g,"\\'")}','${p.packUnit||'pc'}')"
+        style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--line,#EBE1DD);">
+        <div style="font-weight:600;">${p.name}</div>
+        <div class="text-soft" style="font-size:0.78rem;">${p.packUnit||'pc'}</div>
+      </div>`).join('');
+  }
+  dropdown.style.display = 'block';
 }
+
+function selectConsProduct(el, id, name, unit) {
+  const wrapper  = el.closest('div[style*="position:relative"]');
+  wrapper.querySelector('.cons-product').value      = id;
+  wrapper.querySelector('.cons-unit').textContent   = unit;
+  wrapper.querySelector('.cons-search').style.display = 'none';
+  wrapper.querySelector('.cons-dropdown').style.display = 'none';
+  const pill = wrapper.querySelector('.cons-pill');
+  pill.querySelector('.cons-pill-name').textContent = name;
+  pill.style.display = 'flex';
+}
+
+function clearConsRow(btn) {
+  const wrapper = btn.closest('div[style*="position:relative"]');
+  wrapper.querySelector('.cons-product').value      = '';
+  wrapper.querySelector('.cons-unit').textContent   = '';
+  wrapper.querySelector('.cons-pill').style.display = 'none';
+  const search = wrapper.querySelector('.cons-search');
+  search.value          = '';
+  search.style.display  = '';
+  wrapper.querySelector('.cons-dropdown').style.display = 'none';
+}
+
+// Close cons dropdowns when clicking outside
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('.cons-dropdown').forEach(dd => {
+    if (!dd.contains(e.target) && !dd.previousElementSibling?.contains(e.target)) {
+      dd.style.display = 'none';
+    }
+  });
+});
 
 document.getElementById('serviceForm').addEventListener('submit', async (e) => {
   e.preventDefault();
