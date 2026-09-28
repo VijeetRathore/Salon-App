@@ -185,11 +185,11 @@ async function showBillConfirmation(bill, customer, newPointsBalance) {
     `${customer.name} — <strong>${fmtCurrency(bill.total)}</strong> (${bill.paymentMode})<br>+${bill.pointsEarned} loyalty points earned`;
 
   const itemLines = bill.items.map(i => `• ${i.name}${i.qty > 1 ? ' x' + i.qty : ''} — ${fmtCurrency(i.price * i.qty)}`).join('\n');
-  let message = `Hi ${customer.name}, thank you for visiting ${lastSalonName}! 💇\n\n${itemLines}\n`;
+  let message = `Hi ${customer.name},\nThank you for visiting ${lastSalonName}! 💇\n\nYour bill details is given below\n${itemLines}\n`;
   if (bill.discount) message += `Discount: -${fmtCurrency(bill.discount)}\n`;
   if (bill.pointsRedeemed) message += `Points Redeemed: -${bill.pointsRedeemed}\n`;
-  message += `Total Paid: ${fmtCurrency(bill.total)} (${bill.paymentMode})\n`;
-  message += `Loyalty Points Earned: +${bill.pointsEarned} (Balance: ${newPointsBalance})\n\nSee you again soon!`;
+  message += `\n*Total Paid: ${fmtCurrency(bill.total)} (${bill.paymentMode})*\n\n`;
+  message += `*Loyalty Points Earned: +${bill.pointsEarned} (Balance: ${newPointsBalance})*\n\nSee you again soon!\n\nPlease rate us on Google using below link\nhttps://search.google.com/local/writereview?placeid=ChIJTQCRspbdKDoRcnusrG4aBaU`;
 
   const waNote = document.getElementById('confirmWhatsappNote');
   if (customer.mobile) {
@@ -257,7 +257,12 @@ async function onBillDone() {
           token: gasToken,
           action: 'notifyMaster',
           title: 'New Bill Created',
-          body: `Bill for ${document.getElementById('confirmSummary').textContent.split('—')[0].trim()} saved`,
+          body: (() => {
+            const parts = document.getElementById('confirmSummary').textContent.split('—');
+            const name  = parts[0].trim();
+            const amt   = parts[1] ? parts[1].trim().split(' ')[0] : '';
+            return `${name} — ${amt}`;
+          })(),
         }),
       }).catch(() => {}); // silent fail
     }
