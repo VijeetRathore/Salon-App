@@ -198,6 +198,7 @@ async function showBillConfirmation(bill, customer, newPointsBalance) {
       whatsappMsg:    message,
       whatsappStatus: 'pending',
       whatsappMobile: customer.mobile,
+      customerName:   customer.name,
     });
     Sync.requestSync();
     waNote.textContent = '📨 Bill message queued — will be sent from the salon\'s official WhatsApp shortly.';
