@@ -3,3 +3,16 @@
    ============================================ */
 
 #marketingLayout { --split-ratio: 1fr 1.3fr; }
+
+/* ---- Customer picker + blocks (checkbox lists) ----
+   base.css ka `input { width:100% }` checkbox ko bhi bada kar deta hai, isliye override. */
+.mkt-pickbar { margin: 6px 0 8px; }
+.mkt-picker { max-height: 260px; overflow-y: auto; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.mkt-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; margin: 0; font-weight: 500; color: var(--ink); }
+.mkt-row:last-child { border-bottom: none; }
+.mkt-row.disabled { opacity: 0.5; cursor: not-allowed; }
+.mkt-row input[type="checkbox"], .mkt-blocks input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; padding: 0; flex: none; accent-color: var(--accent); }
+.mkt-blocks { display: grid; grid-template-columns: 1fr; gap: 0; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 12px; }
+.mkt-group { padding: 8px 12px 2px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); }
+.mkt-preview { white-space: pre-wrap; word-break: break-word; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-sunken); padding: 12px 14px; margin-top: 8px; min-height: 60px; font-size: 0.95rem; }
+.mkt-summary { font-size: 0.85rem; margin: 10px 0 14px; line-height: 1.5; white-space: pre-line; }
