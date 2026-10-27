@@ -6,5 +6,5 @@
    device's Settings page.
    ============================================ */
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbx29c_hUnPNLUF8sP7z0HyQHCicvF3QYnNcH-pdlLejEcZufsTCuMbGzprma2WVLIQ-EA/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwfHA5TvCZXwysJ5phFOdcbJX8CYPyV0-UPUcwk9FqfMIPjZf6xvnpOL-jpxugDRQmK/exec";
 const GAS_TOKEN = "getgorgeous_2026";
