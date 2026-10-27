@@ -15,32 +15,46 @@
     <main class="main">
 
       <div class="split-layout" id="marketingLayout">
-        <div class="card">
-          <h3 class="mb-16">Send a WhatsApp Message</h3>
-          <div class="field">
-            <label>Customer</label>
-            <select id="mktCustomer"></select>
+        <div>
+          <div class="card mb-16">
+            <h3 class="mb-16">Send WhatsApp Messages</h3>
+
+            <label>1. Customers <span id="mktSelCount" class="text-soft" style="font-weight:400;">(0 selected)</span></label>
+            <input id="mktSearch" placeholder="Name ya number se search karo..." oninput="renderCustomerList()">
+            <div class="flex gap-8 mkt-pickbar">
+              <button type="button" class="btn btn-ghost" onclick="selectAllVisible()">Select all</button>
+              <button type="button" class="btn btn-ghost" onclick="clearSelection()">Clear</button>
+            </div>
+            <div class="mkt-picker" id="mktCustomerList"></div>
+
+            <label class="mt-16">2. Message mein kya kya bhejna hai</label>
+            <div class="mkt-blocks" id="mktBlocks"></div>
+            <div id="mktCustomWrap" style="display:none;" class="field">
+              <label>Custom line (&#123;name&#125; likhoge to customer ka naam aa jayega)</label>
+              <textarea id="mktCustomText" rows="2" oninput="onCustomInput()"></textarea>
+            </div>
+
+            <label class="mt-16">3. Preview</label>
+            <select id="mktPreviewCustomer" onchange="renderPreview()"></select>
+            <div id="mktPreview" class="mkt-preview"></div>
+            <div id="mktSummary" class="text-soft mkt-summary"></div>
+
+            <button id="mktSendBtn" class="btn btn-primary" style="width:100%;" onclick="queueMarketingMessages()">📨 Add to WhatsApp Queue</button>
+            <div id="mktQueuedNote" class="text-soft mt-16" style="display:none; font-size:0.85rem;"></div>
           </div>
-          <div class="field">
-            <label>Template</label>
-            <select id="mktTemplate">
-              <option value="thankyou">Bill Thank You</option>
-              <option value="loyalty">Loyalty Points Update</option>
-              <option value="review">Ask for Google Review</option>
-              <option value="birthday">Birthday Wish</option>
-              <option value="anniversary">Anniversary Wish</option>
-              <option value="reminder">Appointment Reminder</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Message Preview (editable)</label>
-            <textarea id="mktPreview" rows="6"></textarea>
-          </div>
-          <button id="mktSendBtn" class="btn btn-primary" style="width:100%;" onclick="queueMarketingMessage()">📨 Add to WhatsApp Queue</button>
-          <div id="mktQueuedNote" class="text-soft mt-16" style="display:none; font-size:0.85rem;">Queued — will be sent from the official WhatsApp.</div>
         </div>
 
         <div>
+          <div class="card mb-16" id="mktQueueCard">
+            <h3 class="mb-16">Marketing Queue</h3>
+            <div class="flex gap-8 mb-16">
+              <button class="btn btn-secondary" id="mktTabBtn-pending" onclick="switchMktTab('pending')">Pending</button>
+              <button class="btn btn-ghost" id="mktTabBtn-sent" onclick="switchMktTab('sent')">Sent</button>
+            </div>
+            <div id="mktTab-pending"><div id="mktPendingList"></div></div>
+            <div id="mktTab-sent" style="display:none;"><div id="mktSentList"></div></div>
+          </div>
+
           <div class="card mb-16">
             <h3 class="mb-16">Social Engagement Links</h3>
             <div class="field"><label>Google Review Link</label><input id="setReview" placeholder="https://g.page/r/..."></div>
