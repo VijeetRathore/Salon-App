@@ -23,12 +23,12 @@
 const SYNCABLE_STORES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff',
-  'attendance'];
+  'attendance', 'pendingMessages'];
 
 const PULL_STORES = [
   'customers', 'appointments', 'services', 'bills', 'products',
   'purchases', 'stockTransactions', 'expenses', 'staff',
-  'attendance'];
+  'attendance', 'pendingMessages'];
 
 // In SABHI stores mein Sheet se delete hone pe local se bhi hatao.
 // GAS pullSince mein bhi in stores ka FULL data bhejta hai —
