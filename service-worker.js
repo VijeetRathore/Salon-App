@@ -61,7 +61,7 @@ self.addEventListener('message', (event) => {
 });
 
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v30';
+const CACHE_NAME = 'get-gorgeous-v31';
 
 const APP_SHELL = [
   './index.html',
@@ -125,7 +125,17 @@ const APP_SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    // cache:'reload' → browser ke HTTP cache ko bypass karke server se FRESH file lo.
+    // Pehle cache.addAll() purani HTTP-cached files hi naye cache mein daal deta tha,
+    // isliye "Refresh Now" ke baad bhi purana code dikhta rha.
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((url) =>
+        fetch(new Request(url, { cache: 'reload' })).then((res) => {
+          if (!res.ok) throw new Error('Precache failed: ' + url);
+          return cache.put(url, res);
+        })
+      ))
+    )
   );
   self.skipWaiting();
 });
