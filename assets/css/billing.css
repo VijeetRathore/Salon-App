@@ -6,3 +6,10 @@
    stacks to one column below 860px). Bill builder gets more
    room than the summary panel. */
 #billLayout { --split-ratio: 1.6fr 1fr; }
+
+/* Service / Product search row — search box poori width leta hai,
+   qty + Add + New buttons neeche next line mein aate hain.
+   Isse dropdown mein naam poora dikhta hai (pehle ~70px mein squeeze hota tha). */
+.search-row { flex-wrap: wrap; }
+.search-row > .search-box { flex: 1 1 100%; min-width: 0; }
+.search-row > .search-box input { width: 100%; box-sizing: border-box; }
