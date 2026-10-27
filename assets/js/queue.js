@@ -10,6 +10,8 @@
 renderShell('whatsapp-queue.html', 'WhatsApp Queue');
 
 function switchTab(tab) {
+  // Tab yaad rakho — pull-to-refresh (page reload) par Sent tab Pending par wapas na jaye
+  try { sessionStorage.setItem('waQueueTab', tab); } catch (_) {}
   ['pending', 'sent'].forEach((t) => {
     document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
     document.getElementById(`tabBtn-${t}`).className  = t === tab ? 'btn btn-secondary' : 'btn btn-ghost';
@@ -105,6 +107,9 @@ async function markSent(billId) {
 }
 
 // Auto-refresh
+let _savedTab = 'pending';
+try { _savedTab = sessionStorage.getItem('waQueueTab') || 'pending'; } catch (_) {}
+switchTab(_savedTab);
 loadQueue();
 setInterval(loadQueue, 5000);
 window.addEventListener('ggDataUpdated', () => loadQueue());
