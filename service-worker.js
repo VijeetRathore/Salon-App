@@ -61,7 +61,7 @@ self.addEventListener('message', (event) => {
 });
 
 /* ---- BUMP THIS every time you push new code ---- */
-const CACHE_NAME = 'get-gorgeous-v32';
+const CACHE_NAME = 'get-gorgeous-v33';
 
 const APP_SHELL = [
   './index.html',
