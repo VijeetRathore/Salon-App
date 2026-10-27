@@ -17,6 +17,11 @@ function switchTab(tab) {
 }
 
 let _isMaster = false;
+let _customerMap = {};
+
+function billCustomerName(b) {
+  return b.customerName || _customerMap[b.customerId] || 'Customer';
+}
 
 async function loadQueue() {
   const user = window.CURRENT_USER || getCurrentUser();
@@ -25,6 +30,11 @@ async function loadQueue() {
 
   // Bills store se padho — pendingMessages store ab nahi hai
   const allBills = await DB.getAll('bills');
+
+  // Purane bills mein customerName save nahi hota tha — customers store se naam nikaalo
+  const customers = await DB.getAll('customers');
+  _customerMap = {};
+  customers.forEach(c => { _customerMap[c.id] = c.name; });
 
   const pending = allBills
     .filter(b => b.whatsappStatus === 'pending' && b.whatsappMobile)
@@ -48,7 +58,7 @@ async function loadQueue() {
 function renderPendingRow(b) {
   const msg     = b.whatsappMsg || '';
   const preview = msg.length > 70 ? msg.slice(0, 70) + '…' : msg;
-  const name    = b.customerName || b.customerId || 'Customer';
+  const name    = billCustomerName(b);
 
   const actionHtml = _isMaster
     ? `<a class="btn btn-primary" href="${buildWhatsAppLink(b.whatsappMobile, msg)}"
@@ -59,7 +69,7 @@ function renderPendingRow(b) {
     <div class="list-row" style="align-items:flex-start; flex-wrap:wrap; gap:8px;">
       <div style="flex:1; min-width:180px;">
         <span class="badge gold">bill</span>
-        <div style="font-weight:600; margin-top:4px;">${name}</div>
+        <div style="font-weight:600; margin-top:4px;">${name} — ${fmtCurrency(b.total || 0)}</div>
         <div class="text-soft" style="font-size:0.82rem;">${preview}</div>
       </div>
       ${actionHtml}
@@ -67,12 +77,13 @@ function renderPendingRow(b) {
 }
 
 function renderSentRow(b) {
-  const name = b.customerName || b.customerId || 'Customer';
+  const name = billCustomerName(b);
   return `
     <div class="list-row">
       <div>
         <span class="badge success">bill</span>
-        <span style="margin-left:8px;">${name}</span>
+        <span style="margin-left:8px; font-weight:600;">${name}</span>
+        <span style="margin-left:6px;">— ${fmtCurrency(b.total || 0)}</span>
       </div>
       <span class="text-soft" style="font-size:0.8rem;">${fmtDateTime(b.whatsappSentAt || b.createdAt)}</span>
     </div>`;
